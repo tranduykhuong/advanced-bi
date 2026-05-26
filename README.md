@@ -116,7 +116,7 @@ Project/
 ├── .gitignore
 ├── README.md
 ├── .github/workflows/
-│   └── deploy.yml              # GitHub Actions CI/CD (3 VPS targets)
+│   └── deploy-vps1.yml / deploy-vps2.yml / deploy-vps3.yml / deploy-all.yml
 ├── vps1_data_sources/
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -157,27 +157,40 @@ Project/
 
 ## CI/CD: GitHub Actions Deploy
 
-Three parallel deployment jobs are defined in `.github/workflows/deploy.yml`, each triggered on push to `main` with path filters.
+Four workflows under `.github/workflows/` — each VPS has its own file with native `paths:` filters:
 
-### Required GitHub Secrets
+| Workflow file | Target | Push paths |
+|---------------|--------|------------|
+| `deploy-vps1.yml` | VPS1 Mock API | `vps1_data_sources/**`, `docker-compose.yml` |
+| `deploy-vps3.yml` | VPS3 PostgreSQL | `vps3_data_warehouse/**`, `docker-compose.yml` |
+| `deploy-vps2.yml` | VPS2 ETL | `vps2_data_integration/**`, `docker-compose.yml` |
+| `deploy-all.yml` | Full stack (manual) | `workflow_dispatch` only — runs VPS3 → VPS1 → VPS2 |
 
-Configure these in your repository under **Settings → Secrets and variables → Actions**:
+### Required GitHub Secrets & Variables
+
+**Secrets** (Settings → Secrets and variables → Actions → Secrets):
 
 | Secret | Description |
 |--------|-------------|
 | `SSH_PRIVATE_KEY` | Private key for SSH access to all VPS machines |
 | `SSH_USER` | SSH username (e.g. `deploy` or `root`) |
+| `POSTGRES_PASSWORD` | Strong password for the warehouse DB |
+
+**Variables** (Settings → Secrets and variables → Actions → Variables):
+
+| Variable | Value |
+|----------|-------|
 | `VPS1_HOST` | `134.209.99.243` |
 | `VPS2_HOST` | `178.128.23.125` |
 | `VPS3_HOST` | `152.42.163.132` |
-| `POSTGRES_PASSWORD` | Strong password for the warehouse DB |
 
 ### Deploy triggers
 
-- Push to `main` with changes under `vps1_data_sources/**` → deploys to VPS1
-- Push to `main` with changes under `vps2_data_integration/**` → deploys to VPS2
-- Push to `main` with changes under `vps3_data_warehouse/**` → deploys to VPS3
-- Manual trigger via `workflow_dispatch` deploys all three
+- Push to `main` changing `vps1_data_sources/**` → runs `deploy-vps1.yml`
+- Push to `main` changing `vps2_data_integration/**` → runs `deploy-vps2.yml`
+- Push to `main` changing `vps3_data_warehouse/**` → runs `deploy-vps3.yml`
+- Push changing `docker-compose.yml` → runs all three (each workflow matches that path)
+- Manual full deploy: Actions → **Deploy All VPS (Full Stack)** → Run workflow
 
 ---
 

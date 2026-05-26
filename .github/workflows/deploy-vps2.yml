@@ -1,0 +1,88 @@
+name: Deploy VPS2 (ETL Engine)
+
+# Triggered on push when vps2_data_integration/ or shared compose file changes.
+# Manual run: Actions → Deploy VPS2 (ETL Engine) → Run workflow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vps2_data_integration/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: deploy-vps2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-vps2:
+    name: Deploy VPS2 (ETL Engine — 178.128.23.125)
+    runs-on: ubuntu-22.04
+    environment:
+      name: vps2-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS2 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ vars.VPS2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync vps2_data_integration to VPS2
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            ./vps2_data_integration/ \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/vps2_data_integration/
+
+      - name: Sync raw_data samples to VPS2
+        run: |
+          rsync -avz \
+            ./vps1_data_sources/raw_data/ \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/raw_data/
+
+      - name: Sync docker-compose.yml and write .env on VPS2
+        run: |
+          rsync -avz ./docker-compose.yml \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/docker-compose.yml
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} "
+            cat > /opt/bi_dw/.env << 'EOF'
+          POSTGRES_DB=bi_dw
+          POSTGRES_USER=bi_admin
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          DB_HOST=${{ vars.VPS3_HOST }}
+          DB_PORT=5432
+          VPS1_API_URL=http://${{ vars.VPS1_HOST }}:8000
+          RAW_DATA_PATH=/opt/bi_dw/raw_data
+          APP_ENV=production
+          LOG_LEVEL=INFO
+          EOF
+          "
+
+      - name: Build ETL image on VPS2
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose build etl_engine
+            echo "etl_engine image built."
+          ENDSSH
+
+      - name: Run ETL pipeline on VPS2 (one-shot)
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose run --rm etl_engine python run_pipeline.py
+            echo "ETL pipeline run completed."
+          ENDSSH

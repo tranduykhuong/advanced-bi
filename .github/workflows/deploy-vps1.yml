@@ -1,0 +1,69 @@
+name: Deploy VPS1 (Mock API)
+
+# Triggered on push when vps1_data_sources/ or shared compose file changes.
+# Manual run: Actions → Deploy VPS1 (Mock API) → Run workflow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vps1_data_sources/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: deploy-vps1-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-vps1:
+    name: Deploy VPS1 (Mock API — 134.209.99.243)
+    runs-on: ubuntu-22.04
+    environment:
+      name: vps1-production
+      url: http://134.209.99.243:8000/docs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS1 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ vars.VPS1_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync vps1_data_sources to VPS1
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            ./vps1_data_sources/ \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }}:/opt/bi_dw/vps1_data_sources/
+
+      - name: Sync docker-compose.yml to VPS1
+        run: |
+          rsync -avz ./docker-compose.yml \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }}:/opt/bi_dw/docker-compose.yml
+
+      - name: Build and restart mock_api on VPS1
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose build mock_api
+            docker compose up -d --no-deps mock_api
+            echo "mock_api restarted."
+            docker compose ps mock_api
+          ENDSSH
+
+      - name: Smoke-test VPS1 health endpoint
+        run: |
+          sleep 5
+          curl --fail --max-time 10 http://${{ vars.VPS1_HOST }}:8000/health \
+            || (echo "Health check failed!" && exit 1)

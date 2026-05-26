@@ -1,0 +1,80 @@
+name: Deploy VPS3 (PostgreSQL DW)
+
+# Triggered on push when vps3_data_warehouse/ or shared compose file changes.
+# Manual run: Actions → Deploy VPS3 (PostgreSQL DW) → Run workflow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vps3_data_warehouse/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: deploy-vps3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-vps3:
+    name: Deploy VPS3 (PostgreSQL DW — 152.42.163.132)
+    runs-on: ubuntu-22.04
+    environment:
+      name: vps3-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS3 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ vars.VPS3_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync vps3_data_warehouse to VPS3
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            ./vps3_data_warehouse/ \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/vps3_data_warehouse/
+
+      - name: Sync docker-compose.yml and .env to VPS3
+        run: |
+          rsync -avz ./docker-compose.yml \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/docker-compose.yml
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} "
+            cat > /opt/bi_dw/.env << 'EOF'
+          POSTGRES_DB=bi_dw
+          POSTGRES_USER=bi_admin
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          APP_ENV=production
+          EOF
+          "
+
+      - name: Start / recreate postgres_dw on VPS3
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose pull postgres_dw 2>/dev/null || true
+            docker compose up -d --no-deps postgres_dw
+            echo "Waiting for postgres_dw to be healthy..."
+            for i in $(seq 1 30); do
+              if docker compose exec -T postgres_dw pg_isready -U bi_admin -d bi_dw; then
+                echo "postgres_dw is ready."
+                break
+              fi
+              sleep 3
+            done
+            docker compose ps postgres_dw
+          ENDSSH
+
+      - name: Verify DW schemas exist
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} \
+            "docker compose -f /opt/bi_dw/docker-compose.yml exec -T postgres_dw \
+             psql -U bi_admin -d bi_dw -c '\dn'"

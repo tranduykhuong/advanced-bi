@@ -1,0 +1,29 @@
+name: Deploy All VPS (Full Stack)
+
+# Manual full-stack deploy: VPS3 → VPS1 → VPS2 (ETL runs last).
+# Use this for first-time production setup or when you need all three updated.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-all-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-vps3:
+    name: Deploy VPS3 (PostgreSQL DW — 152.42.163.132)
+    uses: ./.github/workflows/deploy-vps3.yml
+    secrets: inherit
+
+  deploy-vps1:
+    name: Deploy VPS1 (Mock API — 134.209.99.243)
+    needs: [deploy-vps3]
+    uses: ./.github/workflows/deploy-vps1.yml
+    secrets: inherit
+
+  deploy-vps2:
+    name: Deploy VPS2 (ETL Engine — 178.128.23.125)
+    needs: [deploy-vps1]
+    uses: ./.github/workflows/deploy-vps2.yml
+    secrets: inherit
