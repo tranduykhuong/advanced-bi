@@ -113,21 +113,21 @@ jobs:
 
       - name: Add VPS3 to known_hosts
         run: |
-          ssh-keyscan -H ${{ vas.VPS3_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ vars.VPS3_HOST }} >> ~/.ssh/known_hosts
 
       - name: Sync vps3_data_warehouse to VPS3
         run: |
           rsync -avz --delete \
             --exclude='.git' \
             ./vps3_data_warehouse/ \
-            ${{ secrets.SSH_USER }}@${{ vas.VPS3_HOST }}:/opt/bi_dw/vps3_data_warehouse/
+            ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/vps3_data_warehouse/
 
       - name: Sync docker-compose.yml and .env to VPS3
         run: |
           rsync -avz ./docker-compose.yml \
-            ${{ secrets.SSH_USER }}@${{ vas.VPS3_HOST }}:/opt/bi_dw/docker-compose.yml
+            ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/docker-compose.yml
           # Write .env with secret values on the remote (never stored in repo)
-          ssh ${{ secrets.SSH_USER }}@${{ vas.VPS3_HOST }} "
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} "
             cat > /opt/bi_dw/.env << 'EOF'
           POSTGRES_DB=bi_dw
           POSTGRES_USER=bi_admin
@@ -138,7 +138,7 @@ jobs:
 
       - name: Start / recreate postgres_dw on VPS3
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ vas.VPS3_HOST }} << 'ENDSSH'
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
             set -e
             cd /opt/bi_dw
             # Pull official postgres image if not present
@@ -157,7 +157,7 @@ jobs:
 
       - name: Verify DW schemas exist
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ vas.VPS3_HOST }} \
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} \
             "docker compose -f /opt/bi_dw/docker-compose.yml exec -T postgres_dw \
              psql -U bi_admin -d bi_dw -c '\dn'"
 
@@ -208,7 +208,7 @@ jobs:
           POSTGRES_DB=bi_dw
           POSTGRES_USER=bi_admin
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          DB_HOST=${{ vas.VPS3_HOST }}
+          DB_HOST=${{ vars.VPS3_HOST }}
           DB_PORT=5432
           VPS1_API_URL=http://${{ vars.VPS1_HOST }}:8000
           RAW_DATA_PATH=/opt/bi_dw/raw_data
