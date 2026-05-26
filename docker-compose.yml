@@ -1,0 +1,102 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Hybrid Inmon-Kimball Trade Analytics Warehouse — Local Dev Stack
+# ---------------------------------------------------------------------------
+# Services mirror the 3-VPS production topology on a single machine.
+# All connection details are read from .env (copy .env.example → .env).
+# ---------------------------------------------------------------------------
+
+networks:
+  bi_dw_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+services:
+
+  # -------------------------------------------------------------------------
+  # VPS3 equivalent: PostgreSQL Data Warehouse
+  # Init scripts are mounted in numeric order so schema creation (00_init.sql)
+  # always precedes layer DDLs.
+  # -------------------------------------------------------------------------
+  postgres_dw:
+    image: postgres:16-alpine
+    container_name: postgres_dw
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bi_dw}
+      POSTGRES_USER: ${POSTGRES_USER:-bi_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Schema init — alphabetical / numeric sort guarantees correct order
+      - ./vps3_data_warehouse/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+      - ./vps3_data_warehouse/01_staging/01_ddl_stg_trade.sql:/docker-entrypoint-initdb.d/01_ddl_stg_trade.sql:ro
+      - ./vps3_data_warehouse/02_ods/01_ddl_ods_trade.sql:/docker-entrypoint-initdb.d/02_ddl_ods_trade.sql:ro
+      - ./vps3_data_warehouse/03_nds/01_ddl_nds_trade.sql:/docker-entrypoint-initdb.d/03_ddl_nds_trade.sql:ro
+      - ./vps3_data_warehouse/04_dds/01_ddl_dds_star.sql:/docker-entrypoint-initdb.d/04_ddl_dds_star.sql:ro
+      - ./vps3_data_warehouse/05_cube/01_views_cube_trade.sql:/docker-entrypoint-initdb.d/05_views_cube_trade.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bi_admin} -d ${POSTGRES_DB:-bi_dw}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - bi_dw_net
+
+  # -------------------------------------------------------------------------
+  # VPS1 equivalent: Mock Data Source API + static file server
+  # -------------------------------------------------------------------------
+  mock_api:
+    build:
+      context: ./vps1_data_sources
+      dockerfile: Dockerfile
+    container_name: mock_api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+    volumes:
+      - ./vps1_data_sources/raw_data:/app/raw_data:ro
+    ports:
+      - "${MOCK_API_PORT:-8000}:8000"
+    networks:
+      - bi_dw_net
+
+  # -------------------------------------------------------------------------
+  # VPS2 equivalent: ETL Engine
+  # Waits for postgres_dw to be healthy and mock_api to be started.
+  # Default CMD runs the full pipeline once; override with 'sleep infinity'
+  # for interactive development (see README).
+  # -------------------------------------------------------------------------
+  etl_engine:
+    build:
+      context: ./vps2_data_integration
+      dockerfile: Dockerfile
+    container_name: etl_engine
+    restart: "no"
+    depends_on:
+      postgres_dw:
+        condition: service_healthy
+      mock_api:
+        condition: service_started
+    environment:
+      # Database
+      DB_HOST: postgres_dw
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-bi_dw}
+      DB_USER: ${POSTGRES_USER:-bi_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # Source API
+      VPS1_API_URL: http://mock_api:8000
+      RAW_DATA_PATH: /raw_data
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./vps1_data_sources/raw_data:/raw_data:ro
+    networks:
+      - bi_dw_net

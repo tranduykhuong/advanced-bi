@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# .gitignore — Hybrid Inmon-Kimball BI Data Warehouse Monorepo
+# ---------------------------------------------------------------------------
+
+# Environment / secrets
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Large binary raw data files (keep only small CSV samples)
+vps1_data_sources/raw_data/*.xlsx
+vps1_data_sources/raw_data/*.xls
+vps1_data_sources/raw_data/*.zip
+vps1_data_sources/raw_data/*.parquet
+
+# Docker / local volumes
+postgres_data/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# CI/CD artifacts
+*.pem
+*.key
+known_hosts

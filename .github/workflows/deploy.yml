@@ -1,0 +1,243 @@
+name: Deploy to VPS Environments
+
+# ---------------------------------------------------------------------------
+# Triggers:
+#   - Push to main with changes in a specific subdirectory → deploy that VPS.
+#   - workflow_dispatch → manual trigger deploys ALL three VPS targets.
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   SSH_PRIVATE_KEY   — ED25519 or RSA private key for SSH access to all VPS
+#   SSH_USER          — SSH username (e.g. "deploy" or "root")
+#   VPS1_HOST         — 134.209.99.243
+#   VPS2_HOST         — 178.128.23.125
+#   VPS3_HOST         — 152.42.163.132
+#   POSTGRES_PASSWORD — Strong password for the warehouse DB
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which VPS to deploy (all | vps1 | vps2 | vps3)"
+        required: false
+        default: "all"
+
+# Prevent concurrent deploys to the same environment
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # -------------------------------------------------------------------------
+  # VPS1 — Mock Data Source API
+  # Triggered when vps1_data_sources/ changes or manual dispatch targets vps1.
+  # -------------------------------------------------------------------------
+  deploy-vps1:
+    name: Deploy VPS1 (Mock API — 134.209.99.243)
+    runs-on: ubuntu-22.04
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.modified, 'vps1_data_sources/')
+    environment:
+      name: vps1-production
+      url: http://${{ secrets.VPS1_HOST }}:8000/docs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS1 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.VPS1_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync vps1_data_sources to VPS1
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            ./vps1_data_sources/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.VPS1_HOST }}:/opt/bi_dw/vps1_data_sources/
+
+      - name: Sync docker-compose.yml to VPS1
+        run: |
+          rsync -avz ./docker-compose.yml \
+            ${{ secrets.SSH_USER }}@${{ secrets.VPS1_HOST }}:/opt/bi_dw/docker-compose.yml
+
+      - name: Build and restart mock_api on VPS1
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS1_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose build mock_api
+            docker compose up -d --no-deps mock_api
+            echo "mock_api restarted."
+            docker compose ps mock_api
+          ENDSSH
+
+      - name: Smoke-test VPS1 health endpoint
+        run: |
+          sleep 5
+          curl --fail --max-time 10 http://${{ secrets.VPS1_HOST }}:8000/health \
+            || (echo "Health check failed!" && exit 1)
+
+  # -------------------------------------------------------------------------
+  # VPS3 — PostgreSQL Data Warehouse
+  # Deploy before VPS2 (ETL depends on the DB schema being up to date).
+  # On first boot, init scripts run automatically via docker-entrypoint-initdb.d.
+  # Subsequent schema changes require a migration strategy (Flyway/Alembic).
+  # -------------------------------------------------------------------------
+  deploy-vps3:
+    name: Deploy VPS3 (PostgreSQL DW — 152.42.163.132)
+    runs-on: ubuntu-22.04
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.modified, 'vps3_data_warehouse/')
+    environment:
+      name: vps3-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS3 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.VPS3_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync vps3_data_warehouse to VPS3
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            ./vps3_data_warehouse/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.VPS3_HOST }}:/opt/bi_dw/vps3_data_warehouse/
+
+      - name: Sync docker-compose.yml and .env to VPS3
+        run: |
+          rsync -avz ./docker-compose.yml \
+            ${{ secrets.SSH_USER }}@${{ secrets.VPS3_HOST }}:/opt/bi_dw/docker-compose.yml
+          # Write .env with secret values on the remote (never stored in repo)
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS3_HOST }} "
+            cat > /opt/bi_dw/.env << 'EOF'
+          POSTGRES_DB=bi_dw
+          POSTGRES_USER=bi_admin
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          APP_ENV=production
+          EOF
+          "
+
+      - name: Start / recreate postgres_dw on VPS3
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS3_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            # Pull official postgres image if not present
+            docker compose pull postgres_dw 2>/dev/null || true
+            docker compose up -d --no-deps postgres_dw
+            echo "Waiting for postgres_dw to be healthy..."
+            for i in $(seq 1 30); do
+              if docker compose exec -T postgres_dw pg_isready -U bi_admin -d bi_dw; then
+                echo "postgres_dw is ready."
+                break
+              fi
+              sleep 3
+            done
+            docker compose ps postgres_dw
+          ENDSSH
+
+      - name: Verify DW schemas exist
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS3_HOST }} \
+            "docker compose -f /opt/bi_dw/docker-compose.yml exec -T postgres_dw \
+             psql -U bi_admin -d bi_dw -c '\dn'"
+
+  # -------------------------------------------------------------------------
+  # VPS2 — ETL Engine
+  # Runs after VPS3 is confirmed healthy (needs_vps3 is optional — remove
+  # the `needs` line if VPS2 deploys should be fully independent).
+  # -------------------------------------------------------------------------
+  deploy-vps2:
+    name: Deploy VPS2 (ETL Engine — 178.128.23.125)
+    runs-on: ubuntu-22.04
+    needs: [deploy-vps3]
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.head_commit.modified, 'vps2_data_integration/'))
+    environment:
+      name: vps2-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS2 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.VPS2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync vps2_data_integration to VPS2
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            ./vps2_data_integration/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.VPS2_HOST }}:/opt/bi_dw/vps2_data_integration/
+
+      - name: Sync docker-compose.yml and write .env on VPS2
+        run: |
+          rsync -avz ./docker-compose.yml \
+            ${{ secrets.SSH_USER }}@${{ secrets.VPS2_HOST }}:/opt/bi_dw/docker-compose.yml
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS2_HOST }} "
+            cat > /opt/bi_dw/.env << 'EOF'
+          POSTGRES_DB=bi_dw
+          POSTGRES_USER=bi_admin
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          DB_HOST=${{ secrets.VPS3_HOST }}
+          DB_PORT=5432
+          VPS1_API_URL=http://${{ secrets.VPS1_HOST }}:8000
+          RAW_DATA_PATH=/opt/bi_dw/raw_data
+          APP_ENV=production
+          LOG_LEVEL=INFO
+          EOF
+          "
+
+      - name: Build ETL image on VPS2
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS2_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose build etl_engine
+            echo "etl_engine image built."
+          ENDSSH
+
+      - name: Run ETL pipeline on VPS2 (one-shot)
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS2_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose run --rm etl_engine python run_pipeline.py
+            echo "ETL pipeline run completed."
+          ENDSSH
+
+      # Optional: schedule future runs via cron on the VPS instead of
+      # triggering through CI. Uncomment to install a daily cron job:
+      # - name: Install cron schedule on VPS2
+      #   run: |
+      #     ssh ${{ secrets.SSH_USER }}@${{ secrets.VPS2_HOST }} \
+      #       "echo '0 2 * * * cd /opt/bi_dw && docker compose run --rm etl_engine python run_pipeline.py >> /var/log/etl_pipeline.log 2>&1' | crontab -"
