@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Optional
 from pydantic import BaseModel, Field
 
+
 class TradeFlowRecord(BaseModel):
     reporter_code: str
     reporter_name: str
