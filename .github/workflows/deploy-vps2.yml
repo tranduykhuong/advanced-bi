@@ -47,9 +47,11 @@ jobs:
 
       - name: Sync raw_data samples to VPS2
         run: |
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} \
+            "mkdir -p /opt/bi_dw/vps1_data_sources/raw_data"
           rsync -avz \
             ./vps1_data_sources/raw_data/ \
-            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/raw_data/
+            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/vps1_data_sources/raw_data/
 
       - name: Sync docker-compose.yml and write .env on VPS2
         run: |
@@ -63,7 +65,7 @@ jobs:
           DB_HOST=${{ vars.VPS3_HOST }}
           DB_PORT=5432
           VPS1_API_URL=http://${{ vars.VPS1_HOST }}:8000
-          RAW_DATA_PATH=/opt/bi_dw/raw_data
+          RAW_DATA_PATH=/raw_data
           APP_ENV=production
           LOG_LEVEL=INFO
           EOF
@@ -83,6 +85,6 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << 'ENDSSH'
             set -e
             cd /opt/bi_dw
-            docker compose run --rm etl_engine python run_pipeline.py
+            docker compose run --rm --no-deps etl_engine python run_pipeline.py
             echo "ETL pipeline run completed."
           ENDSSH

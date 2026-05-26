@@ -85,15 +85,15 @@ services:
       mock_api:
         condition: service_started
     environment:
-      # Database
-      DB_HOST: postgres_dw
-      DB_PORT: 5432
+      # Database — defaults suit local Compose; override DB_HOST in .env on VPS2
+      DB_HOST: ${DB_HOST:-postgres_dw}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${POSTGRES_DB:-bi_dw}
       DB_USER: ${POSTGRES_USER:-bi_admin}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      # Source API
-      VPS1_API_URL: http://mock_api:8000
-      RAW_DATA_PATH: /raw_data
+      # Source API — override VPS1_API_URL in .env on VPS2
+      VPS1_API_URL: ${VPS1_API_URL:-http://mock_api:8000}
+      RAW_DATA_PATH: ${RAW_DATA_PATH:-/raw_data}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
