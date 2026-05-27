@@ -15,7 +15,7 @@ ods.etl_watermark for its source system. Typical causes:
 Entry point:
   run(batch_id: uuid.UUID | None = None) -> int
     Returns number of NDS rows re-upserted.
-  Can also be run directly: python 02_cleansing_and_transform/late_arriving_handler.py
+  Can also be run directly: python 02_transform/late_arriving_handler.py
 
 Available helpers:
   from config import load_config
@@ -53,7 +53,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         # Suggested steps:
         #   1. SELECT COUNT(*) FROM ods.trade_flow WHERE is_late_arriving = TRUE
         #   2. If count == 0, log and return early
-        #   3. Re-upsert those rows into nds.fact_trade_flow (same logic as staging_to_nds)
+        #   3. Re-upsert those rows into nds.fact_trade_flow (same logic as ods_to_nds)
         #   4. UPDATE ods.trade_flow SET is_late_arriving = FALSE WHERE is_late_arriving = TRUE
         raise NotImplementedError("TODO: implement late_arriving_handler.run()")
     except Exception as exc:

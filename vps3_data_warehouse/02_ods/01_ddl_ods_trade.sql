@@ -6,7 +6,7 @@
 --   • Typed columns — data promoted from stg after cleansing.
 --   • Natural business keys preserved; no surrogate keys yet.
 --   • One row per source system event — deduplicated on grain key.
---   • batch_id (UUID) and source_system provide full lineage back to stg.
+--   • batch_id (UUID) and source_system provide full lineage back to stage.
 --
 -- TODO: Finalize column types once stg schema is locked.
 --       Unique constraint grain must match the ETL dedup key.

@@ -3,10 +3,10 @@ ETL Pipeline Orchestrator
 
 Runs the full Hybrid Inmon-Kimball ETL pipeline in strict phase order:
 
-  Phase 01a  extract_trademap_api   — VPS1 API → stg.*
-  Phase 01b  extract_raw_files      — raw CSV/Excel → stg.*
-  Phase 02a  staging_to_ods         — stg.* → ods.*
-  Phase 02b  staging_to_nds         — ods.* → nds.* (3NF + fuzzy match)
+  Phase 01a  extract_api   — VPS1 API → stage.*
+  Phase 01b  extract_txt_files      — raw CSV/Excel → stage.*
+  Phase 02a  stage_to_ods         — stage.* → ods.*
+  Phase 02b  stage_to_nds         — ods.* → nds.* (3NF + fuzzy match)
   Phase 02c  late_arriving_handler  — reprocess late-arriving ODS rows
   Phase 03   nds_to_dds_scd         — nds.* → dds.* (SCD1/SCD2 + fact)
 
@@ -19,7 +19,7 @@ Exit codes:
 
 Usage:
   python run_pipeline.py                     # full pipeline
-  python 01_extract/extract_trademap_api.py  # single phase
+  python 01_extract/extract_api.py  # single phase
 """
 
 from __future__ import annotations
@@ -37,12 +37,14 @@ from common.logging_config import setup_logging
 from common.db import get_engine, register_batch, complete_batch
 
 PHASES = [
-    ("01_extract.extract_trademap_api",                 "Phase 01a: Extract API"),
-    ("01_extract.extract_raw_files",                    "Phase 01b: Extract Files"),
-    ("02_cleansing_and_transform.staging_to_ods",       "Phase 02a: Staging → ODS"),
-    ("02_cleansing_and_transform.staging_to_nds",       "Phase 02b: ODS → NDS"),
-    ("02_cleansing_and_transform.late_arriving_handler","Phase 02c: Late-Arriving"),
-    ("03_load_to_dds.nds_to_dds_scd",                  "Phase 03:  NDS → DDS SCD"),
+    ("01_extract.extract_api", "Phase 01: Extract API"),
+    ("01_extract.extract_txt_files", "Phase 01: Extract TXT Files"),
+    ("02_transform.transform_text_source", "Phase 02: Transform TXT → Stage artifact"),
+    ("02_transform.stage_to_ods", "Phase 02: Stage → ODS"),
+    ("02_transform.ods_to_nds", "Phase 02: ODS → NDS"),
+    ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving"),
+    ("03_load.load_stage_text", "Phase 03: Load stage_text"),
+    ("03_load.nds_to_dds_scd", "Phase 03:  NDS → DDS SCD"),
 ]
 
 
@@ -74,8 +76,9 @@ def main() -> int:
 
     if failed_phases:
         logger.error("Pipeline finished with errors in: %s", failed_phases)
-        complete_batch(engine, pipeline_batch_id, status="FAILED",
-                       error_message=str(failed_phases))
+        complete_batch(
+            engine, pipeline_batch_id, status="FAILED", error_message=str(failed_phases)
+        )
         return 1
 
     complete_batch(engine, pipeline_batch_id, status="SUCCESS")

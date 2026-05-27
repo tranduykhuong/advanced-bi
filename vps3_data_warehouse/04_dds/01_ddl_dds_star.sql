@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS dds.dim_date (
 -- dds.dim_country  — SCD Type 2
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_country (
-    country_sk    SERIAL       NOT NULL,   -- surrogate key
+    country_sk    BIGSERIAL       NOT NULL,   -- surrogate key
 
     -- TODO: add business key + attributes
     -- country_bk    CHAR(3)      NOT NULL,   -- business key (ISO-3)
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS dds.dim_country (
 -- dds.dim_product  — SCD Type 1
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_product (
-    product_sk    SERIAL       NOT NULL,   -- surrogate key
+    product_sk    BIGSERIAL       NOT NULL,   -- surrogate key
 
     -- TODO: add business key + attributes
     -- product_bk    VARCHAR(10)  NOT NULL,   -- business key (hs_code)

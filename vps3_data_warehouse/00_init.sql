@@ -10,11 +10,10 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";     -- Trigram similarity (fuzzy match
 CREATE EXTENSION IF NOT EXISTS "btree_gist";  -- GiST index support for range types (SCD2)
 
 -- Warehouse schemas (Hybrid Inmon-Kimball layers)
-CREATE SCHEMA IF NOT EXISTS stg;   -- Staging:  raw landing zone (VARCHAR-heavy)
+CREATE SCHEMA IF NOT EXISTS stage;  -- Stage:  raw landing zone (VARCHAR-heavy)
 CREATE SCHEMA IF NOT EXISTS ods;   -- ODS:      operational data store (Inmon integrated)
 CREATE SCHEMA IF NOT EXISTS nds;   -- NDS:      normalized data store (3NF master data)
 CREATE SCHEMA IF NOT EXISTS dds;   -- DDS:      dimensional data store (Kimball star schema)
-CREATE SCHEMA IF NOT EXISTS cube;  -- Cube:     analytical views / hypercubes over DDS
 
 -- Metadata table to track ETL batch runs (accessible from all layers)
 CREATE TABLE IF NOT EXISTS public.etl_batch_log (
@@ -30,8 +29,7 @@ CREATE TABLE IF NOT EXISTS public.etl_batch_log (
     CONSTRAINT pk_etl_batch_log PRIMARY KEY (batch_id)
 );
 
-COMMENT ON SCHEMA stg  IS 'Staging Area — fast VARCHAR landing zone; truncated each ETL run';
+COMMENT ON SCHEMA stage IS 'Stage Area — fast VARCHAR landing zone; truncated each ETL run';
 COMMENT ON SCHEMA ods  IS 'Operational Data Store — typed, integrated, Inmon approach';
 COMMENT ON SCHEMA nds  IS 'Normalized Data Store — 3NF master data and trade facts';
 COMMENT ON SCHEMA dds  IS 'Dimensional Data Store — Kimball star schema (SCD1 & SCD2)';
-COMMENT ON SCHEMA cube IS 'Analytical Cube — SQL views for OLAP rollups over DDS';
