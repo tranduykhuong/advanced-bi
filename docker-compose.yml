@@ -15,7 +15,6 @@ volumes:
   postgres_data:
 
 services:
-
   # -------------------------------------------------------------------------
   # VPS3 equivalent: PostgreSQL Data Warehouse
   # Init scripts are mounted in numeric order so schema creation (00_init.sql)
@@ -33,7 +32,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       # Schema init — alphabetical / numeric sort guarantees correct order
       - ./vps3_data_warehouse/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
-      - ./vps3_data_warehouse/01_staging/01_ddl_stg_trade.sql:/docker-entrypoint-initdb.d/01_ddl_stg_trade.sql:ro
+      - ./vps3_data_warehouse/01_stage/01_ddl_stage_trade.sql:/docker-entrypoint-initdb.d/01_ddl_stage_trade.sql:ro
       - ./vps3_data_warehouse/02_ods/01_ddl_ods_trade.sql:/docker-entrypoint-initdb.d/02_ddl_ods_trade.sql:ro
       - ./vps3_data_warehouse/03_nds/01_ddl_nds_trade.sql:/docker-entrypoint-initdb.d/03_ddl_nds_trade.sql:ro
       - ./vps3_data_warehouse/04_dds/01_ddl_dds_star.sql:/docker-entrypoint-initdb.d/04_ddl_dds_star.sql:ro
@@ -41,7 +40,11 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bi_admin} -d ${POSTGRES_DB:-bi_dw}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-bi_admin} -d ${POSTGRES_DB:-bi_dw}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5

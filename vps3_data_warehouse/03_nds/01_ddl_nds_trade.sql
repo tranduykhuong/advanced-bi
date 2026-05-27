@@ -18,7 +18,7 @@
 -- Master country/territory reference (3NF, authoritative ISO codes).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS nds.dim_country (
-    country_id    SERIAL       NOT NULL,
+    country_id    BIGSERIAL       NOT NULL,
 
     -- TODO: add master data columns
     -- iso3_code     CHAR(3)      NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS nds.dim_country (
 -- Master HS commodity code reference.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS nds.dim_hs_product (
-    product_id    SERIAL       NOT NULL,
+    product_id    BIGSERIAL       NOT NULL,
 
     -- TODO: add master data columns
     -- hs_code       VARCHAR(10)  NOT NULL,
