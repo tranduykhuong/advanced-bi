@@ -14,6 +14,7 @@ A Master's BI project implementing a **Hybrid Inmon–Kimball** data warehouse f
 │  │  Mock API    │        │  02_cleanse &    │─────►│  ods  (Inmon)   │  │
 │  │  raw_data/   │        │     transform    │─────►│  nds  (3NF)     │  │
 │  └──────────────┘        │  03_load         │─────►│  dds  (Kimball) │  │
+│                          └──────────────────┘      │  cube (views)   │  │
 │                                                    └─────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -26,6 +27,7 @@ A Master's BI project implementing a **Hybrid Inmon–Kimball** data warehouse f
 | `ods`   | Operational DS | Typed + keyed | Integrated operational snapshot (Inmon approach)     |
 | `nds`   | Normalized DS  | 3NF + FKs     | Master data: countries, HS codes, reporters/partners |
 | `dds`   | Dimensional DS | Star schema   | Kimball dims (SCD1/SCD2) + fact tables for OLAP      |
+| `cube`  | Cube/Views     | SQL Views     | Pre-aggregated analytical hypercubes over DDS        |
 
 ### Production VPS Mapping
 
@@ -200,6 +202,7 @@ Four workflows under `.github/workflows/` — each VPS has its own file with nat
 01_extract          → loads raw data into stage.*  (TRUNCATE + load)
 02_cleanse          → stage.* → ods.* → nds.*      (type cast, dedup, 3NF, fuzzy match)
 03_load             → nds.* → dds.*              (SCD1/SCD2 upserts, star keys)
+cube views          → defined at init             (SQL views, no ETL step needed)
 ```
 
 Late-arriving data (rows with `report_year` behind the current watermark) is handled by `02_transform/late_arriving_handler.py` which reprocesses the affected partition.
