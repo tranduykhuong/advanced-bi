@@ -18,7 +18,7 @@ TABLE_DDL = """
 CREATE SCHEMA IF NOT EXISTS stage;
 
 CREATE TABLE IF NOT EXISTS stage.stage_text (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     country TEXT,
     goods TEXT NOT NULL,
     flow_type BOOLEAN NOT NULL,

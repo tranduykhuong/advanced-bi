@@ -36,7 +36,6 @@ services:
       - ./vps3_data_warehouse/02_ods/01_ddl_ods_trade.sql:/docker-entrypoint-initdb.d/02_ddl_ods_trade.sql:ro
       - ./vps3_data_warehouse/03_nds/01_ddl_nds_trade.sql:/docker-entrypoint-initdb.d/03_ddl_nds_trade.sql:ro
       - ./vps3_data_warehouse/04_dds/01_ddl_dds_star.sql:/docker-entrypoint-initdb.d/04_ddl_dds_star.sql:ro
-      - ./vps3_data_warehouse/05_cube/01_views_cube_trade.sql:/docker-entrypoint-initdb.d/05_views_cube_trade.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:

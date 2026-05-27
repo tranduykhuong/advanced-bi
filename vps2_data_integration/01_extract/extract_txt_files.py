@@ -40,6 +40,17 @@ def extract_rows_from_text(text: str, source_file: str) -> list[dict]:
         raise ValueError(f"Unable to determine year from header: {first_line!r}")
     year = int(year_match.group(1))
 
+    month_count: int | None = None
+    for line in lines[1:]:
+        month_match = re.search(r"\b(\d+)\s+months?\b", line, re.IGNORECASE)
+        if month_match:
+            month_count = int(month_match.group(1))
+            break
+    if month_count is None:
+        raise ValueError(
+            "Unable to determine month count from header (expected 'N months')"
+        )
+
     extracted: list[dict] = []
     current_goods: str | None = None
 
@@ -90,6 +101,7 @@ def extract_rows_from_text(text: str, source_file: str) -> list[dict]:
                 "goods": current_goods if country_name else goods_name,
                 "country": country_name,
                 "raw_values": numeric_fields,
+                "month_count": month_count,
             }
         )
 

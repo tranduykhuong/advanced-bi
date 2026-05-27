@@ -16,8 +16,6 @@ from common.db import get_engine, register_batch, complete_batch
 
 logger = get_logger(__name__)
 
-MONTH_COLUMNS = 4
-
 
 def _parse_decimal(value: str) -> Decimal | None:
     if value is None:
@@ -30,36 +28,39 @@ def _parse_decimal(value: str) -> Decimal | None:
 
 def _parse_month_rows(
     raw_values: list[str],
+    month_count: int,
 ) -> list[tuple[int, Decimal | None, Decimal | None]]:
     nums = [_parse_decimal(value) for value in raw_values]
     nums = [n for n in nums if n is not None]
     rows: list[tuple[int, Decimal | None, Decimal | None]] = []
 
-    if len(nums) >= MONTH_COLUMNS:
-        if len(nums) == 5:
-            for month_index, value in enumerate(nums[:MONTH_COLUMNS], start=1):
+    if len(nums) >= month_count:
+        if len(nums) == month_count * 2 + 1:
+            for month_index, value in enumerate(nums[:month_count], start=1):
                 rows.append((month_index, None, value * Decimal(1000)))
             return rows
 
-        if len(nums) == 10:
-            for month_index in range(MONTH_COLUMNS):
+        if len(nums) == month_count * 2 + 2:
+            for month_index in range(month_count):
                 quantity = nums[month_index * 2]
                 value = nums[month_index * 2 + 1]
                 rows.append((month_index + 1, quantity, value * Decimal(1000)))
             return rows
 
-        if len(nums) == 8:
-            for month_index in range(MONTH_COLUMNS):
+        if len(nums) == month_count * 2:
+            for month_index in range(month_count):
                 quantity = nums[month_index * 2]
                 value = nums[month_index * 2 + 1]
                 rows.append((month_index + 1, quantity, value * Decimal(1000)))
             return rows
 
-        for month_index, value in enumerate(nums[:MONTH_COLUMNS], start=1):
+        for month_index, value in enumerate(nums[:month_count], start=1):
             rows.append((month_index, None, value * Decimal(1000)))
         return rows
 
-    raise ValueError(f"Unexpected raw_values length {len(raw_values)}: {raw_values}")
+    raise ValueError(
+        f"Unexpected raw_values length {len(nums)} for month_count={month_count}: {raw_values}"
+    )
 
 
 def _transform_record(record: dict) -> list[dict]:
@@ -67,11 +68,11 @@ def _transform_record(record: dict) -> list[dict]:
     country = record["country"]
     flow_type = record["flow_type"]
     year = record["year"]
-    source_file = record["source_file"]
     raw_values = record["raw_values"]
+    month_count = record["month_count"]
 
     month_rows: list[dict] = []
-    for month, quantity, value in _parse_month_rows(raw_values):
+    for month, quantity, value in _parse_month_rows(raw_values, month_count):
         if value is None:
             continue
 

@@ -99,13 +99,6 @@ docker compose run --rm etl_engine sleep infinity
 docker exec -it etl_engine bash
 ```
 
-### 6. Query the cube views
-
-```bash
-docker exec -it postgres_dw psql -U bi_admin -d bi_dw -c \
-  "SELECT * FROM cube.v_trade_by_country_year LIMIT 10;"
-```
-
 ---
 
 ## Directory Structure
@@ -150,8 +143,7 @@ Project/
     ├── 01_stage/01_ddl_stg_trade.sql
     ├── 02_ods/01_ddl_ods_trade.sql
     ├── 03_nds/01_ddl_nds_trade.sql
-    ├── 04_dds/01_ddl_dds_star.sql
-    └── 05_cube/01_views_cube_trade.sql
+    └── 04_dds/01_ddl_dds_star.sql
 ```
 
 ---

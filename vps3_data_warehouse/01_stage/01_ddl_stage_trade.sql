@@ -1,12 +1,12 @@
 -- =============================================================================
--- 01_ddl_stage.sql — Stage tables definition
+-- 01_ddl_stage_trade.sql — Stage tables definition
 -- Schema: stage
 --
 -- These tables store parsed monthly trade values from raw data sources.
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS stage.stage_text (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     country TEXT,
     goods TEXT NOT NULL,
     flow_type BOOLEAN NOT NULL,
