@@ -26,7 +26,7 @@ TABLE_DDL = """
 CREATE SCHEMA IF NOT EXISTS stage;
 
 CREATE TABLE IF NOT EXISTS stage.stage_csv (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     period TEXT,
     cmd_code TEXT,
     cmd_desc TEXT,
@@ -89,10 +89,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                 index=False,
                 dtype={
                     "primary_value": Float(),
-                    "cif_value":     Float(),
-                    "fob_value":     Float(),
-                    "net_wgt":       Float(),
-                    "qty":           Float(),
+                    "cif_value": Float(),
+                    "fob_value": Float(),
+                    "net_wgt": Float(),
+                    "qty": Float(),
                 },
             )
             rows_loaded = len(df)

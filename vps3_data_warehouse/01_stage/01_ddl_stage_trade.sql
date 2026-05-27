@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS stage.stage_text (
 );
 
 CREATE TABLE IF NOT EXISTS stage.stage_csv (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     period VARCHAR(10) NOT NULL,
     cmd_code VARCHAR(10) NOT NULL,
     cmd_desc TEXT,
