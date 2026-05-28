@@ -4,4 +4,4 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_CHUNK_SIZE = int(os.getenv("ETL_CHUNK_SIZE", "50000"))
+DEFAULT_CHUNK_SIZE = int(os.getenv("ETL_CHUNK_SIZE", "10000"))

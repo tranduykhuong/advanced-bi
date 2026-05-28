@@ -73,6 +73,7 @@ jobs:
           VPS1_POSTGRES_USER=trademap_admin
           VPS1_POSTGRES_PASSWORD=${VPS1_POSTGRES_PASSWORD}
           RAW_DATA_PATH=/raw_data
+          ETL_CHUNK_SIZE=10000
           APP_ENV=production
           LOG_LEVEL=INFO
           EOF

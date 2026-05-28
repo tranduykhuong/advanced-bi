@@ -18,6 +18,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
+from common.chunking import DEFAULT_CHUNK_SIZE
 from common.logging_config import setup_logging, get_logger
 from common.db import get_engine, register_batch, complete_batch
 
@@ -64,33 +65,40 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                 complete_batch(engine, batch_id, rows_loaded=0)
             return 0
 
-        # Create tmp directory for extracted data
         tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         output_file = tmp_dir / "trade_extracted.csv"
+        if output_file.exists():
+            output_file.unlink()
 
-        # Process each CSV file
-        all_dfs = []
+        first_write = True
         for csv_file in sorted(csv_dir.glob("*.csv")):
             logger.info("Extracting CSV file: %s", csv_file.name)
-            
-            # Read CSV and select required columns
-            df = pd.read_csv(csv_file, usecols=REQUIRED_COLUMNS, low_memory=False, encoding="latin-1", index_col=False)
-            
-            logger.info("  → Loaded %d rows from %s", len(df), csv_file.name)
-            
-            # Data validation/cleaning could be added here
-            # df = df.dropna(subset=["period", "cmdCode"])
-            
-            all_dfs.append(df)
-            total_rows += len(df)
+            file_rows = 0
 
-        # Concatenate and save to temp file
-        if all_dfs:
-            combined_df = pd.concat(all_dfs, ignore_index=True)
-            combined_df.to_csv(output_file, index=False)
+            for chunk in pd.read_csv(
+                csv_file,
+                usecols=REQUIRED_COLUMNS,
+                low_memory=False,
+                encoding="latin-1",
+                index_col=False,
+                chunksize=DEFAULT_CHUNK_SIZE,
+            ):
+                chunk.to_csv(
+                    output_file,
+                    mode="w" if first_write else "a",
+                    header=first_write,
+                    index=False,
+                )
+                first_write = False
+                file_rows += len(chunk)
+
+            logger.info("  → Loaded %d rows from %s", file_rows, csv_file.name)
+            total_rows += file_rows
+
+        if total_rows:
             logger.info("Saved %d extracted rows to %s", total_rows, output_file)
-        
+
         logger.info("Total rows extracted: %d", total_rows)
 
     except Exception as exc:

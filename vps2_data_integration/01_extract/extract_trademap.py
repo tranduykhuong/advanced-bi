@@ -4,26 +4,37 @@ Extract ITC Trade Map relational data from VPS1 PostgreSQL (trademap_db).
 Denormalizes trade_record via JOINs on country and product, then saves
 a flat CSV snapshot to tmp/trademap_extracted.csv for downstream transform/load.
 
-Uses chunked reads to stay within memory limits on small VPS instances.
+Uses a psycopg2 server-side cursor and csv.writer — no pandas — to stay
+within memory limits on small VPS instances.
 """
 
 from __future__ import annotations
 
+import csv
 import sys
 import uuid
 from pathlib import Path
 
-import pandas as pd
+import psycopg2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
 from common.chunking import DEFAULT_CHUNK_SIZE
 from common.logging_config import setup_logging, get_logger
-from common.db import get_engine, get_vps1_engine, register_batch, complete_batch
+from common.db import get_engine, register_batch, complete_batch
 
 logger = get_logger(__name__)
 
+OUTPUT_COLUMNS = (
+    "exporter_name",
+    "importer_name",
+    "product_code",
+    "product_label",
+    "year",
+    "month",
+    "value_usd_k",
+)
 
 EXTRACT_SQL = """
 SELECT
@@ -39,6 +50,62 @@ JOIN country c_exp ON c_exp.id = tr.exporter_id
 JOIN country c_imp ON c_imp.id = tr.importer_id
 LEFT JOIN product p ON p.code = tr.product_code
 """
+
+COUNT_SQL = """
+SELECT
+    COUNT(*) AS total_rows,
+    COUNT(DISTINCT tr.exporter_id) AS exporters,
+    COUNT(DISTINCT tr.importer_id) AS importers
+FROM trade_record tr
+"""
+
+
+def _stream_to_csv(cfg, output_file: Path, chunk_size: int) -> int:
+    """Stream query results from VPS1 directly to CSV."""
+    conn = psycopg2.connect(
+        host=cfg.vps1_db.host,
+        port=cfg.vps1_db.port,
+        dbname=cfg.vps1_db.name,
+        user=cfg.vps1_db.user,
+        password=cfg.vps1_db.password,
+    )
+    rows_written = 0
+    try:
+        with conn:
+            with conn.cursor(name="trademap_extract") as cur:
+                cur.itersize = chunk_size
+                cur.execute(EXTRACT_SQL)
+                with output_file.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.writer(handle)
+                    writer.writerow(OUTPUT_COLUMNS)
+                    while True:
+                        batch = cur.fetchmany(chunk_size)
+                        if not batch:
+                            break
+                        writer.writerows(batch)
+                        rows_written += len(batch)
+                        if rows_written % chunk_size == 0:
+                            logger.info("  → streamed %d rows...", rows_written)
+    finally:
+        conn.close()
+    return rows_written
+
+
+def _fetch_counts(cfg) -> tuple[int, int, int]:
+    conn = psycopg2.connect(
+        host=cfg.vps1_db.host,
+        port=cfg.vps1_db.port,
+        dbname=cfg.vps1_db.name,
+        user=cfg.vps1_db.user,
+        password=cfg.vps1_db.password,
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(COUNT_SQL)
+            total, exporters, importers = cur.fetchone()
+            return int(total), int(exporters), int(importers)
+    finally:
+        conn.close()
 
 
 def run(batch_id: uuid.UUID | None = None) -> int:
@@ -59,42 +126,21 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         if output_file.exists():
             output_file.unlink()
 
-        vps1_engine = get_vps1_engine(cfg)
-        exporters: set[str] = set()
-        importers: set[str] = set()
-        first_chunk = True
-
-        try:
-            for chunk in pd.read_sql(
-                EXTRACT_SQL, vps1_engine, chunksize=DEFAULT_CHUNK_SIZE
-            ):
-                rows_extracted += len(chunk)
-                exporters.update(chunk["exporter_name"].dropna().unique())
-                importers.update(chunk["importer_name"].dropna().unique())
-                chunk.to_csv(
-                    output_file,
-                    mode="w" if first_chunk else "a",
-                    header=first_chunk,
-                    index=False,
-                )
-                first_chunk = False
-                del chunk
-        finally:
-            vps1_engine.dispose()
-
-        if rows_extracted == 0:
+        total, exporters, importers = _fetch_counts(cfg)
+        if total == 0:
             logger.warning(
                 "No rows in trade_record — run ingest_trademap.py on VPS1 first."
             )
         else:
             logger.info(
-                "Extracted %d rows (%d exporters, %d importers)",
-                rows_extracted,
-                len(exporters),
-                len(importers),
+                "trade_record has %d rows (%d exporters, %d importers) — streaming extract",
+                total,
+                exporters,
+                importers,
             )
 
-        logger.info("Saved extracted data to %s", output_file)
+        rows_extracted = _stream_to_csv(cfg, output_file, DEFAULT_CHUNK_SIZE)
+        logger.info("Saved %d rows to %s", rows_extracted, output_file)
 
     except Exception as exc:
         logger.exception("extract_trademap failed: %s", exc)
