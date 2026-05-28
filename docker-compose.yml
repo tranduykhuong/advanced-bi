@@ -13,6 +13,7 @@ networks:
 
 volumes:
   postgres_data:
+  postgres_vps1_data:
 
 services:
   # -------------------------------------------------------------------------
@@ -44,6 +45,31 @@ services:
           "CMD-SHELL",
           "pg_isready -U ${POSTGRES_USER:-bi_admin} -d ${POSTGRES_DB:-bi_dw}",
         ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - bi_dw_net
+
+  # -------------------------------------------------------------------------
+  # VPS1 equivalent: Trade Map source DB (landing zone before ETL to VPS3)
+  # -------------------------------------------------------------------------
+  postgres_vps1:
+    image: postgres:16-alpine
+    container_name: postgres_vps1
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${VPS1_POSTGRES_DB:-trademap_db}
+      POSTGRES_USER: ${VPS1_POSTGRES_USER:-trademap_admin}
+      POSTGRES_PASSWORD: ${VPS1_POSTGRES_PASSWORD:?VPS1_POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_vps1_data:/var/lib/postgresql/data
+      - ./vps1_data_sources/trademap_ingest/schema.sql:/docker-entrypoint-initdb.d/01_trademap_schema.sql:ro
+    ports:
+      - "${VPS1_POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${VPS1_POSTGRES_USER:-trademap_admin} -d ${VPS1_POSTGRES_DB:-trademap_db}"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -1,14 +1,14 @@
-name: Deploy VPS1 (Mock API)
+name: Deploy VPS1 (Mock API + Trade Map DB)
 
-# Triggered on push when vps1_data_sources/ or shared compose file changes.
-# Manual run: Actions → Deploy VPS1 (Mock API) → Run workflow
+# Deploys mock_api + postgres_vps1 only. CSV ingest (ingest_trademap.py) is manual — not in CI/CD.
+# Triggered on push when vps1_data_sources/ or VPS1 compose file changes.
 
 on:
   push:
     branches: [main]
     paths:
       - 'vps1_data_sources/**'
-      - 'docker-compose.yml'
+      - 'docker-compose.vps1.yml'
   workflow_dispatch:
   workflow_call:
 
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   deploy-vps1:
-    name: Deploy VPS1 (Mock API — 134.209.99.243)
+    name: Deploy VPS1 (Sources — 134.209.99.243)
     runs-on: ubuntu-22.04
     environment:
       name: vps1-production
@@ -46,29 +46,38 @@ jobs:
             ./vps1_data_sources/ \
             ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }}:/opt/bi_dw/vps1_data_sources/
 
-      - name: Sync docker-compose.yml and write .env on VPS1
+      - name: Sync docker-compose.vps1.yml and write .env on VPS1
         run: |
-          rsync -avz ./docker-compose.yml \
-            ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }}:/opt/bi_dw/docker-compose.yml
+          rsync -avz ./docker-compose.vps1.yml \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }}:/opt/bi_dw/docker-compose.vps1.yml
           ssh ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }} "
             cat > /opt/bi_dw/.env << 'EOF'
-          POSTGRES_DB=bi_dw
-          POSTGRES_USER=bi_admin
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          VPS1_POSTGRES_DB=trademap_db
+          VPS1_POSTGRES_USER=trademap_admin
+          VPS1_POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          VPS1_POSTGRES_PORT=5432
           APP_ENV=production
           MOCK_API_PORT=8000
           EOF
           "
 
-      - name: Build and restart mock_api on VPS1
+      - name: Build and restart VPS1 services
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }} << 'ENDSSH'
             set -e
             cd /opt/bi_dw
-            docker compose build mock_api
-            docker compose up -d --no-deps mock_api
-            echo "mock_api restarted."
-            docker compose ps mock_api
+            docker compose -f docker-compose.vps1.yml build mock_api
+            docker compose -f docker-compose.vps1.yml up -d postgres_vps1 mock_api
+            echo "Waiting for postgres_vps1..."
+            for i in $(seq 1 30); do
+              if docker compose -f docker-compose.vps1.yml exec -T postgres_vps1 \
+                pg_isready -U trademap_admin -d trademap_db; then
+                echo "postgres_vps1 is ready."
+                break
+              fi
+              sleep 2
+            done
+            docker compose -f docker-compose.vps1.yml ps
           ENDSSH
 
       - name: Smoke-test VPS1 health endpoint

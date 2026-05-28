@@ -13,9 +13,9 @@ A Master's BI project implementing a **Hybrid Inmon–Kimball** data warehouse f
 │  │  FastAPI     │──────► │  01_extract      │─────►│  stg  (landing) │  │
 │  │  Mock API    │        │  02_cleanse &    │─────►│  ods  (Inmon)   │  │
 │  │  raw_data/   │        │     transform    │─────►│  nds  (3NF)     │  │
-│  └──────────────┘        │  03_load         │─────►│  dds  (Kimball) │  │
-│                          └──────────────────┘      │  cube (views)   │  │
-│                                                    └─────────────────┘  │
+│  │  postgres    │        │  03_load         │─────►│  dds  (Kimball) │  │
+│  │  (trademap)  │        └──────────────────┘      │  cube (views)   │  │
+│  └──────────────┘                                  └─────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -99,13 +99,47 @@ docker compose run --rm etl_engine sleep infinity
 docker exec -it etl_engine bash
 ```
 
+### 6. Trade Map ingestion (manual — not in CI/CD)
+
+CI/CD chỉ deploy `postgres_vps1` + `mock_api`. Đổ CSV vào `trademap_db` chạy tay trên VPS1 (hoặc local):
+
+```bash
+# 1. Đặt file CSV vào vps1_data_sources/raw_data/
+
+# 2. Cài dependency (một lần)
+cd vps1_data_sources/trademap_ingest
+pip install -r requirements.txt
+
+# 3. Trỏ env tới Postgres (local ví dụ)
+export VPS1_DB_HOST=localhost
+export VPS1_DB_PORT=5433
+export VPS1_POSTGRES_DB=trademap_db
+export VPS1_DB_USER=trademap_admin
+export VPS1_DB_PASSWORD=<your_password>
+
+# 4. Chạy ingest
+python ingest_trademap.py --data-dir ../raw_data
+
+# Kiểm tra
+docker exec postgres_vps1 psql -U trademap_admin -d trademap_db -c \
+  "SELECT COUNT(*) FROM trade_record;"
+```
+
+### 7. Query the cube views
+
+```bash
+docker exec -it postgres_dw psql -U bi_admin -d bi_dw -c \
+  "SELECT * FROM cube.v_trade_by_country_year LIMIT 10;"
+```
+
 ---
 
 ## Directory Structure
 
 ```
 Project/
-├── docker-compose.yml          # Local dev orchestration
+├── docker-compose.yml          # Local full-stack (VPS1+VPS2+VPS3)
+├── docker-compose.vps1.yml     # VPS1 only: mock_api + postgres_vps1
 ├── .env.example                # Environment variable template
 ├── .gitignore
 ├── README.md
@@ -117,9 +151,11 @@ Project/
 │   ├── app/
 │   │   ├── main.py             # FastAPI app (TradeMap-style endpoints)
 │   │   └── models.py           # Pydantic response schemas
+│   ├── trademap_ingest/        # CSV → Postgres on VPS1 (schema, config, ingest)
 │   └── raw_data/
 │       ├── un_comtrade_sample.csv
 │       └── gso_trade_sample.csv
+│       └── Trade_Map_*.csv     # ITC exports (not committed)
 ├── vps2_data_integration/
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -152,12 +188,12 @@ Project/
 
 Four workflows under `.github/workflows/` — each VPS has its own file with native `paths:` filters:
 
-| Workflow file     | Target              | Push paths                                         |
-| ----------------- | ------------------- | -------------------------------------------------- |
-| `deploy-vps1.yml` | VPS1 Mock API       | `vps1_data_sources/**`, `docker-compose.yml`       |
-| `deploy-vps3.yml` | VPS3 PostgreSQL     | `vps3_data_warehouse/**`, `docker-compose.yml`     |
-| `deploy-vps2.yml` | VPS2 ETL            | `vps2_data_integration/**`, `docker-compose.yml`   |
-| `deploy-all.yml`  | Full stack (manual) | `workflow_dispatch` only — runs VPS3 → VPS1 → VPS2 |
+| Workflow file | Target | Push paths |
+|---------------|--------|------------|
+| `deploy-vps1.yml` | VPS1 Mock API + Trade Map DB | `vps1_data_sources/**`, `docker-compose.vps1.yml` |
+| `deploy-vps3.yml` | VPS3 PostgreSQL | `vps3_data_warehouse/**`, `docker-compose.yml` |
+| `deploy-vps2.yml` | VPS2 ETL | `vps2_data_integration/**`, `docker-compose.yml` |
+| `deploy-all.yml` | Full stack (manual) | `workflow_dispatch` only — runs VPS3 → VPS1 → VPS2 |
 
 ### Required GitHub Secrets & Variables
 
@@ -189,10 +225,11 @@ Four workflows under `.github/workflows/` — each VPS has its own file with nat
 
 ## Local vs Production Hostnames
 
-| Variable       | Local (Docker Compose)       | Production                   |
-| -------------- | ---------------------------- | ---------------------------- |
-| `DB_HOST`      | `postgres_dw` (service name) | `152.42.163.132`             |
-| `VPS1_API_URL` | `http://mock_api:8000`       | `http://134.209.99.243:8000` |
+| Variable | Local (Docker Compose) | Production |
+|----------|----------------------|------------|
+| `DB_HOST` | `postgres_dw` (service name) | `152.42.163.132` |
+| `VPS1_DB_HOST` | `postgres_vps1` (service name) | `134.209.99.243` |
+| `VPS1_API_URL` | `http://mock_api:8000` | `http://134.209.99.243:8000` |
 
 ---
 
