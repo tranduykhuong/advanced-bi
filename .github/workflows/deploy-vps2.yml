@@ -1,5 +1,7 @@
 name: Deploy VPS2 (ETL Engine)
 
+# Syncs code, raw_data samples, .env, and builds the etl_engine image on VPS2.
+# Does NOT run the ETL pipeline — use run-vps2-pipeline.yml for that.
 # Triggered on push when vps2_data_integration/ or VPS2 compose file changes.
 # Manual run: Actions → Deploy VPS2 (ETL Engine) → Run workflow
 
@@ -85,13 +87,4 @@ jobs:
             cd /opt/bi_dw
             docker compose -f docker-compose.vps2.yml build etl_engine
             echo "etl_engine image built."
-          ENDSSH
-
-      - name: Run ETL pipeline on VPS2 (one-shot)
-        run: |
-          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << 'ENDSSH'
-            set -e
-            cd /opt/bi_dw
-            docker compose -f docker-compose.vps2.yml run --rm --no-deps etl_engine python run_pipeline.py
-            echo "ETL pipeline run completed."
           ENDSSH
