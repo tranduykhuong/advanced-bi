@@ -40,12 +40,14 @@ PHASES = [
     ("01_extract.extract_api", "Phase 01: Extract API"),
     ("01_extract.extract_txt_files", "Phase 01: Extract TXT Files"),
     ("01_extract.extract_csv", "Phase 01: Extract CSV Files"),
+    ("01_extract.extract_trademap", "Phase 01: Extract Trade Map (VPS1)"),
     ("02_transform.transform_text_source", "Phase 02: Transform TXT → Stage artifact"),
     ("02_transform.stage_to_ods", "Phase 02: Stage → ODS"),
     ("02_transform.ods_to_nds", "Phase 02: ODS → NDS"),
     ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving"),
     ("03_load.load_stage_text", "Phase 03: Load stage_text"),
     ("03_load.load_stage_csv", "Phase 03: Load stage_csv"),
+    ("03_load.load_stage_db", "Phase 03: Load stage_db"),
     ("03_load.nds_to_dds_scd", "Phase 03:  NDS → DDS SCD"),
 ]
 

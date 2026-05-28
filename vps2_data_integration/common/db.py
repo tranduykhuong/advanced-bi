@@ -28,6 +28,11 @@ def get_engine(cfg: AppConfig) -> Engine:
     return engine
 
 
+def get_vps1_engine(cfg: AppConfig) -> Engine:
+    """Create a SQLAlchemy engine for the VPS1 Trade Map source database."""
+    return create_engine(cfg.vps1_db.sqlalchemy_url, pool_pre_ping=True)
+
+
 @contextmanager
 def get_psycopg2_conn(cfg: AppConfig) -> Generator[psycopg2.extensions.connection, None, None]:
     """Yield a raw psycopg2 connection with autocommit disabled.
