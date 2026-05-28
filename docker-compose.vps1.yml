@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# VPS1 stack — Mock API + Trade Map source PostgreSQL
+# Deploy on 134.209.99.243 (or locally: docker compose -f docker-compose.vps1.yml up -d)
+# ---------------------------------------------------------------------------
+
+version: "3.9"
+
+networks:
+  vps1_net:
+    driver: bridge
+
+volumes:
+  postgres_vps1_data:
+
+services:
+
+  postgres_vps1:
+    image: postgres:16-alpine
+    container_name: postgres_vps1
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${VPS1_POSTGRES_DB:-trademap_db}
+      POSTGRES_USER: ${VPS1_POSTGRES_USER:-trademap_admin}
+      POSTGRES_PASSWORD: ${VPS1_POSTGRES_PASSWORD:?VPS1_POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_vps1_data:/var/lib/postgresql/data
+      - ./vps1_data_sources/trademap_ingest/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    ports:
+      - "${VPS1_POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${VPS1_POSTGRES_USER:-trademap_admin} -d ${VPS1_POSTGRES_DB:-trademap_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - vps1_net
+
+  mock_api:
+    build:
+      context: ./vps1_data_sources
+      dockerfile: Dockerfile
+    container_name: mock_api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+    volumes:
+      - ./vps1_data_sources/raw_data:/app/raw_data:ro
+    ports:
+      - "${MOCK_API_PORT:-8000}:8000"
+    networks:
+      - vps1_net
