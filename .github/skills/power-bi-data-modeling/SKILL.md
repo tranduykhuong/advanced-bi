@@ -1,6 +1,6 @@
 ---
-name: powerbi-modeling
-description: 'Power BI semantic modeling assistant for building optimized data models. Use when working with Power BI semantic models, creating measures, designing star schemas, configuring relationships, implementing RLS, or optimizing model performance. Triggers on queries about DAX calculations, table relationships, dimension/fact table design, naming conventions, model documentation, cardinality, cross-filter direction, calculation groups, and data model best practices. Always connects to the active model first using power-bi-modeling MCP tools to understand the data structure before providing guidance.'
+name: power-bi-data-modeling
+description: "Power BI semantic modeling assistant for building optimized data models. Use when working with Power BI semantic models, creating measures, designing star schemas, configuring relationships, implementing RLS, or optimizing model performance. Triggers on queries about DAX calculations, table relationships, dimension/fact table design, naming conventions, model documentation, cardinality, cross-filter direction, calculation groups, and data model best practices. Always connects to the active model first using power-bi-modeling MCP tools to understand the data structure before providing guidance."
 ---
 
 # Power BI Semantic Modeling
@@ -10,6 +10,7 @@ Guide users in building optimized, well-documented Power BI semantic models foll
 ## When to Use This Skill
 
 Use this skill when users ask about:
+
 - Creating or optimizing Power BI semantic models
 - Designing star schemas (dimension/fact tables)
 - Writing DAX measures or calculated columns
@@ -26,11 +27,13 @@ Use this skill when users ask about:
 ## Prerequisites
 
 ### Required Tools
+
 - **Power BI Modeling MCP Server**: Required for connecting to and modifying semantic models
   - Enables: connection_operations, table_operations, measure_operations, relationship_operations, etc.
   - Must be configured and running to interact with models
 
 ### Optional Dependencies
+
 - **Microsoft Learn MCP Server**: Recommended for researching latest best practices
   - Enables: microsoft_docs_search, microsoft_docs_fetch
   - Use for complex scenarios, new features, and official documentation
@@ -65,6 +68,7 @@ After connecting, assess the model against best practices:
 ### 3. Provide Targeted Guidance
 
 Based on analysis, guide improvements using references:
+
 - Star schema design: See [STAR-SCHEMA.md](references/STAR-SCHEMA.md)
 - Relationship configuration: See [RELATIONSHIPS.md](references/RELATIONSHIPS.md)
 - DAX measures and naming: See [MEASURES-DAX.md](references/MEASURES-DAX.md)
@@ -73,36 +77,37 @@ Based on analysis, guide improvements using references:
 
 ## Quick Reference: Model Quality Checklist
 
-| Area | Best Practice |
-|------|--------------|
-| Tables | Clear dimension vs fact classification |
-| Naming | Human-readable: `Customer Name` not `CUST_NM` |
-| Descriptions | All tables, columns, measures documented |
-| Measures | Explicit DAX measures for business metrics |
-| Relationships | One-to-many from dimension to fact |
-| Cross-filter | Single direction unless specifically needed |
-| Hidden fields | Hide technical keys, IDs from report view |
-| Date table | Dedicated marked date table |
+| Area          | Best Practice                                 |
+| ------------- | --------------------------------------------- |
+| Tables        | Clear dimension vs fact classification        |
+| Naming        | Human-readable: `Customer Name` not `CUST_NM` |
+| Descriptions  | All tables, columns, measures documented      |
+| Measures      | Explicit DAX measures for business metrics    |
+| Relationships | One-to-many from dimension to fact            |
+| Cross-filter  | Single direction unless specifically needed   |
+| Hidden fields | Hide technical keys, IDs from report view     |
+| Date table    | Dedicated marked date table                   |
 
 ## MCP Tools Reference
 
 Use these Power BI Modeling MCP operations:
 
-| Operation Category | Key Operations |
-|-------------------|----------------|
-| `connection_operations` | Connect, ListConnections, ListLocalInstances, ConnectFabric |
-| `model_operations` | Get, GetStats, ExportTMDL |
-| `table_operations` | List, Get, Create, Update, GetSchema |
-| `column_operations` | List, Get, Create, Update (descriptions, hidden, format) |
-| `measure_operations` | List, Get, Create, Update, Move |
-| `relationship_operations` | List, Get, Create, Update, Activate, Deactivate |
-| `dax_query_operations` | Execute, Validate |
-| `calculation_group_operations` | List, Create, Update |
-| `security_role_operations` | List, Create, Update, GetEffectivePermissions |
+| Operation Category             | Key Operations                                              |
+| ------------------------------ | ----------------------------------------------------------- |
+| `connection_operations`        | Connect, ListConnections, ListLocalInstances, ConnectFabric |
+| `model_operations`             | Get, GetStats, ExportTMDL                                   |
+| `table_operations`             | List, Get, Create, Update, GetSchema                        |
+| `column_operations`            | List, Get, Create, Update (descriptions, hidden, format)    |
+| `measure_operations`           | List, Get, Create, Update, Move                             |
+| `relationship_operations`      | List, Get, Create, Update, Activate, Deactivate             |
+| `dax_query_operations`         | Execute, Validate                                           |
+| `calculation_group_operations` | List, Create, Update                                        |
+| `security_role_operations`     | List, Create, Update, GetEffectivePermissions               |
 
 ## Common Tasks
 
 ### Add Measure with Description
+
 ```
 measure_operations(
   operation: "Create",
@@ -117,6 +122,7 @@ measure_operations(
 ```
 
 ### Update Column Description
+
 ```
 column_operations(
   operation: "Update",
@@ -130,6 +136,7 @@ column_operations(
 ```
 
 ### Create Relationship
+
 ```
 relationship_operations(
   operation: "Create",
@@ -146,6 +153,7 @@ relationship_operations(
 ## When to Use Microsoft Learn MCP
 
 Research current best practices using `microsoft_docs_search` for:
+
 - Latest DAX function documentation
 - New Power BI features and capabilities
 - Complex modeling scenarios (SCD Type 2, many-to-many)
