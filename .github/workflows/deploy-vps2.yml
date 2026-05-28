@@ -56,6 +56,7 @@ jobs:
       - name: Sync docker-compose.vps2.yml and write .env on VPS2
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          VPS1_POSTGRES_PASSWORD: ${{ secrets.VPS1_POSTGRES_PASSWORD }}
         run: |
           rsync -avz ./docker-compose.vps2.yml \
             ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/docker-compose.vps2.yml
@@ -66,6 +67,11 @@ jobs:
           DB_HOST=${{ vars.VPS3_HOST }}
           DB_PORT=5432
           VPS1_API_URL=http://${{ vars.VPS1_HOST }}:8000
+          VPS1_DB_HOST=${{ vars.VPS1_HOST }}
+          VPS1_DB_PORT=5432
+          VPS1_POSTGRES_DB=trademap_db
+          VPS1_POSTGRES_USER=trademap_admin
+          VPS1_POSTGRES_PASSWORD=${VPS1_POSTGRES_PASSWORD}
           RAW_DATA_PATH=/raw_data
           APP_ENV=production
           LOG_LEVEL=INFO

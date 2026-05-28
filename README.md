@@ -199,11 +199,12 @@ Four workflows under `.github/workflows/` — each VPS has its own file with nat
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets):
 
-| Secret              | Description                                    |
-| ------------------- | ---------------------------------------------- |
-| `SSH_PRIVATE_KEY`   | Private key for SSH access to all VPS machines |
-| `SSH_USER`          | SSH username (e.g. `deploy` or `root`)         |
-| `POSTGRES_PASSWORD` | Strong password for the warehouse DB           |
+| Secret                   | Description                                    |
+| ------------------------ | ---------------------------------------------- |
+| `SSH_PRIVATE_KEY`        | Private key for SSH access to all VPS machines |
+| `SSH_USER`               | SSH username (e.g. `deploy` or `root`)         |
+| `POSTGRES_PASSWORD`      | Strong password for the warehouse DB (VPS3)    |
+| `VPS1_POSTGRES_PASSWORD` | Password for Trade Map source DB (VPS1 + VPS2) |
 
 **Variables** (Settings → Secrets and variables → Actions → Variables):
 

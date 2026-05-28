@@ -21,6 +21,7 @@ from common.db import get_engine, get_vps1_engine, register_batch, complete_batc
 
 logger = get_logger(__name__)
 
+
 EXTRACT_SQL = """
 SELECT
     c_exp.name   AS exporter_name,
