@@ -54,7 +54,7 @@ jobs:
             cat > /opt/bi_dw/.env << 'EOF'
           VPS1_POSTGRES_DB=trademap_db
           VPS1_POSTGRES_USER=trademap_admin
-          VPS1_POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          VPS1_POSTGRES_PASSWORD=${{ secrets.VPS1_POSTGRES_PASSWORD }}
           VPS1_POSTGRES_PORT=5432
           APP_ENV=production
           MOCK_API_PORT=8000
