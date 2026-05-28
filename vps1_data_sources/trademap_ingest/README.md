@@ -51,7 +51,7 @@ python ingest_trademap.py \
   ../raw_data/Trade_Map_-_Bilateral_trade_between_Zambia_and_Viet_Nam.csv
 
 # Chỉ nạp master
-python ingest_trademap.py --data-dir ../raw_data --skip-master
+python ingest_trademap.py --data-dir ../raw_data
 # (không có trade_files → chỉ chạy master nếu không có --skip-master)
 ```
 
