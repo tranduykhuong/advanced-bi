@@ -62,6 +62,7 @@ jobs:
           POSTGRES_DB=bi_dw
           POSTGRES_USER=bi_admin
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          VPS1_POSTGRES_PASSWORD=${{ secrets.VPS1_POSTGRES_PASSWORD }}
           DB_HOST=${{ vars.VPS3_HOST }}
           DB_PORT=5432
           VPS1_API_URL=http://${{ vars.VPS1_HOST }}:8000
