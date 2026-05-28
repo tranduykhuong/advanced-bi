@@ -1,6 +1,6 @@
 name: Deploy VPS2 (ETL Engine)
 
-# Triggered on push when vps2_data_integration/ or shared compose file changes.
+# Triggered on push when vps2_data_integration/ or VPS2 compose file changes.
 # Manual run: Actions → Deploy VPS2 (ETL Engine) → Run workflow
 
 on:
@@ -8,7 +8,7 @@ on:
     branches: [main]
     paths:
       - 'vps2_data_integration/**'
-      - 'docker-compose.yml'
+      - 'docker-compose.vps2.yml'
   workflow_dispatch:
   workflow_call:
 
@@ -53,16 +53,16 @@ jobs:
             ./vps1_data_sources/raw_data/ \
             ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/vps1_data_sources/raw_data/
 
-      - name: Sync docker-compose.yml and write .env on VPS2
+      - name: Sync docker-compose.vps2.yml and write .env on VPS2
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
-          rsync -avz ./docker-compose.yml \
-            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/docker-compose.yml
-          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} "
-            cat > /opt/bi_dw/.env << 'EOF'
+          rsync -avz ./docker-compose.vps2.yml \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/docker-compose.vps2.yml
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} "cat > /opt/bi_dw/.env" <<EOF
           POSTGRES_DB=bi_dw
           POSTGRES_USER=bi_admin
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          VPS1_POSTGRES_PASSWORD=${{ secrets.VPS1_POSTGRES_PASSWORD || 'not_used_on_vps2' }}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           DB_HOST=${{ vars.VPS3_HOST }}
           DB_PORT=5432
           VPS1_API_URL=http://${{ vars.VPS1_HOST }}:8000
@@ -70,14 +70,13 @@ jobs:
           APP_ENV=production
           LOG_LEVEL=INFO
           EOF
-          "
 
       - name: Build ETL image on VPS2
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << 'ENDSSH'
             set -e
             cd /opt/bi_dw
-            docker compose build etl_engine
+            docker compose -f docker-compose.vps2.yml build etl_engine
             echo "etl_engine image built."
           ENDSSH
 
@@ -86,6 +85,6 @@ jobs:
           ssh ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << 'ENDSSH'
             set -e
             cd /opt/bi_dw
-            docker compose run --rm --no-deps etl_engine python run_pipeline.py
+            docker compose -f docker-compose.vps2.yml run --rm --no-deps etl_engine python run_pipeline.py
             echo "ETL pipeline run completed."
           ENDSSH

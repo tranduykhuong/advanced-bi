@@ -47,19 +47,19 @@ jobs:
             ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }}:/opt/bi_dw/vps1_data_sources/
 
       - name: Sync docker-compose.vps1.yml and write .env on VPS1
+        env:
+          VPS1_POSTGRES_PASSWORD: ${{ secrets.VPS1_POSTGRES_PASSWORD }}
         run: |
           rsync -avz ./docker-compose.vps1.yml \
             ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }}:/opt/bi_dw/docker-compose.vps1.yml
-          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }} "
-            cat > /opt/bi_dw/.env << 'EOF'
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS1_HOST }} "cat > /opt/bi_dw/.env" <<EOF
           VPS1_POSTGRES_DB=trademap_db
           VPS1_POSTGRES_USER=trademap_admin
-          VPS1_POSTGRES_PASSWORD=${{ secrets.VPS1_POSTGRES_PASSWORD }}
+          VPS1_POSTGRES_PASSWORD=${VPS1_POSTGRES_PASSWORD}
           VPS1_POSTGRES_PORT=5432
           APP_ENV=production
           MOCK_API_PORT=8000
           EOF
-          "
 
       - name: Build and restart VPS1 services
         run: |
