@@ -121,6 +121,12 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       # Source API — override VPS1_API_URL in .env on VPS2
       VPS1_API_URL: ${VPS1_API_URL:-http://mock_api:8000}
+      # VPS1 Trade Map source DB — used by extract_trademap
+      VPS1_DB_HOST: ${VPS1_DB_HOST:-postgres_vps1}
+      VPS1_DB_PORT: ${VPS1_DB_PORT:-5432}
+      VPS1_POSTGRES_DB: ${VPS1_POSTGRES_DB:-trademap_db}
+      VPS1_POSTGRES_USER: ${VPS1_POSTGRES_USER:-trademap_admin}
+      VPS1_POSTGRES_PASSWORD: ${VPS1_POSTGRES_PASSWORD:?VPS1_POSTGRES_PASSWORD is required}
       RAW_DATA_PATH: ${RAW_DATA_PATH:-/raw_data}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
