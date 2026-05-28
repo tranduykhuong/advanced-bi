@@ -51,7 +51,7 @@ jobs:
           POSTGRES_DB=bi_dw
           POSTGRES_USER=bi_admin
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-          VPS1_POSTGRES_PASSWORD=${{ secrets.VPS1_POSTGRES_PASSWORD }}
+          VPS1_POSTGRES_PASSWORD=${{ secrets.VPS1_POSTGRES_PASSWORD || 'not_used_on_vps3' }}
           APP_ENV=production
           EOF
           "
