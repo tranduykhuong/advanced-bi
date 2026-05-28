@@ -7,11 +7,13 @@ import sys
 import uuid
 from pathlib import Path
 
+import pandas as pd
 from sqlalchemy import Float, text
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
+from common.chunking import DEFAULT_CHUNK_SIZE
 from common.logging_config import setup_logging, get_logger
 from common.db import get_engine, register_batch, complete_batch
 
@@ -42,6 +44,12 @@ CREATE INDEX IF NOT EXISTS idx_stage_db_exporter
     ON stage.stage_db (exporter_name);
 """
 
+_DTYPE = {
+    "year": Float(),
+    "month": Float(),
+    "value_usd_k": Float(),
+}
+
 
 def run(batch_id: uuid.UUID | None = None) -> int:
     """Load Trade Map data into stage.stage_db."""
@@ -65,25 +73,26 @@ def run(batch_id: uuid.UUID | None = None) -> int:
 
         tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
         extracted_file = tmp_dir / "trademap_extracted.csv"
+        transformed_file = tmp_dir / "trademap_transformed.csv"
 
         if not extracted_file.exists():
             logger.warning("Extracted Trade Map file not found at %s", extracted_file)
         else:
-            df = _transform.run()
-            df["batch_id"] = str(batch_id)
-            df.to_sql(
-                "stage_db",
-                engine,
-                schema="stage",
-                if_exists="append",
-                index=False,
-                dtype={
-                    "year": Float(),
-                    "month": Float(),
-                    "value_usd_k": Float(),
-                },
-            )
-            rows_loaded = len(df)
+            _transform.transform_to_file()
+            batch_id_str = str(batch_id)
+
+            for chunk in pd.read_csv(transformed_file, chunksize=DEFAULT_CHUNK_SIZE):
+                chunk["batch_id"] = batch_id_str
+                chunk.to_sql(
+                    "stage_db",
+                    engine,
+                    schema="stage",
+                    if_exists="append",
+                    index=False,
+                    dtype=_DTYPE,
+                )
+                rows_loaded += len(chunk)
+
             logger.info("Loaded %d rows into stage.stage_db", rows_loaded)
 
     except Exception as exc:

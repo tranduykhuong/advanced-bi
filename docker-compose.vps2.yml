@@ -29,6 +29,7 @@ services:
       VPS1_POSTGRES_USER: ${VPS1_POSTGRES_USER:-trademap_admin}
       VPS1_POSTGRES_PASSWORD: ${VPS1_POSTGRES_PASSWORD:?VPS1_POSTGRES_PASSWORD is required}
       RAW_DATA_PATH: ${RAW_DATA_PATH:-/raw_data}
+      ETL_CHUNK_SIZE: ${ETL_CHUNK_SIZE:-50000}
       APP_ENV: ${APP_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:

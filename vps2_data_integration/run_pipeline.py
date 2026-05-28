@@ -24,6 +24,7 @@ Usage:
 
 from __future__ import annotations
 
+import gc
 import sys
 import importlib
 import logging
@@ -77,6 +78,8 @@ def main() -> int:
         except Exception as exc:
             logger.error("    %s  FAILED: %s", label, exc)
             failed_phases.append(label)
+        finally:
+            gc.collect()
 
     if failed_phases:
         logger.error("Pipeline finished with errors in: %s", failed_phases)

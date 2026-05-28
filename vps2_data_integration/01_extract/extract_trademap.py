@@ -3,6 +3,8 @@ Extract ITC Trade Map relational data from VPS1 PostgreSQL (trademap_db).
 
 Denormalizes trade_record via JOINs on country and product, then saves
 a flat CSV snapshot to tmp/trademap_extracted.csv for downstream transform/load.
+
+Uses chunked reads to stay within memory limits on small VPS instances.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
+from common.chunking import DEFAULT_CHUNK_SIZE
 from common.logging_config import setup_logging, get_logger
 from common.db import get_engine, get_vps1_engine, register_batch, complete_batch
 
@@ -35,7 +38,6 @@ FROM trade_record tr
 JOIN country c_exp ON c_exp.id = tr.exporter_id
 JOIN country c_imp ON c_imp.id = tr.importer_id
 LEFT JOIN product p ON p.code = tr.product_code
-ORDER BY tr.year DESC, tr.month DESC, c_exp.name, tr.product_code
 """
 
 
@@ -54,10 +56,31 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         output_file = tmp_dir / "trademap_extracted.csv"
+        if output_file.exists():
+            output_file.unlink()
 
         vps1_engine = get_vps1_engine(cfg)
-        df = pd.read_sql(EXTRACT_SQL, vps1_engine)
-        rows_extracted = len(df)
+        exporters: set[str] = set()
+        importers: set[str] = set()
+        first_chunk = True
+
+        try:
+            for chunk in pd.read_sql(
+                EXTRACT_SQL, vps1_engine, chunksize=DEFAULT_CHUNK_SIZE
+            ):
+                rows_extracted += len(chunk)
+                exporters.update(chunk["exporter_name"].dropna().unique())
+                importers.update(chunk["importer_name"].dropna().unique())
+                chunk.to_csv(
+                    output_file,
+                    mode="w" if first_chunk else "a",
+                    header=first_chunk,
+                    index=False,
+                )
+                first_chunk = False
+                del chunk
+        finally:
+            vps1_engine.dispose()
 
         if rows_extracted == 0:
             logger.warning(
@@ -67,11 +90,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             logger.info(
                 "Extracted %d rows (%d exporters, %d importers)",
                 rows_extracted,
-                df["exporter_name"].nunique(),
-                df["importer_name"].nunique(),
+                len(exporters),
+                len(importers),
             )
 
-        df.to_csv(output_file, index=False)
         logger.info("Saved extracted data to %s", output_file)
 
     except Exception as exc:
