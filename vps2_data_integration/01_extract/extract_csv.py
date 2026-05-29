@@ -58,7 +58,6 @@ def run(batch_id: uuid.UUID | None = None) -> int:
     total_rows = 0
     try:
         csv_dir = Path(cfg.raw_data_path) / "csv_source"
-        print(csv_dir, '9999999999')
 
         if not csv_dir.exists():
             logger.warning("CSV_SOURCE_PATH '%s' not found — skipping.", csv_dir)
