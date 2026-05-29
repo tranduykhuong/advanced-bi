@@ -47,23 +47,25 @@ CREATE SCHEMA IF NOT EXISTS ods;
 
 CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     ods_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
     year                INTEGER NOT NULL,
     quarter             SMALLINT,
     month               SMALLINT NOT NULL,
     hs_code             VARCHAR(8),
-    category_chapter    VARCHAR(100),
-    category_heading    VARCHAR(100),
-    product_name        VARCHAR(255),
+    category_chapter    TEXT,
+    category_heading    TEXT,
+    product_name        TEXT,
     partner_code        VARCHAR(3),
-    partner_name        VARCHAR(100),
-    partner_region      VARCHAR(50),
-    partner_continent   VARCHAR(50),
-    fta_keys            TEXT[],
+    partner_name        TEXT,
+    partner_region      TEXT,
+    partner_continent   TEXT,
+    fta_keys            INT[],
     flow_type           BOOLEAN NOT NULL,
     value               NUMERIC(18,6),
     quantity            NUMERIC(18,6),
     unit                VARCHAR(20),
     record_source       VARCHAR(20),
+
     source_system       VARCHAR(50) NOT NULL,
     batch_id            UUID NOT NULL,
     is_late_arriving    BOOLEAN DEFAULT FALSE,
@@ -77,11 +79,52 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
 """
 
 
+UPSERT_QUERY = """
+    INSERT INTO ods.trade_transaction (
+        year, quarter, month, hs_code, category_chapter, category_heading, product_name,
+        partner_code, partner_name, partner_region, partner_continent, fta_keys,
+        flow_type, value, quantity, unit, record_source, source_system,
+        batch_id, is_late_arriving, quality_flags
+    ) VALUES %s
+    ON CONFLICT ON CONSTRAINT uq_ods_trade_transaction
+    DO UPDATE SET
+        -- Accumulate numerics; revert to absolute value on same-batch reload
+        value            = CASE
+                               WHEN excluded.batch_id = ods.trade_transaction.batch_id
+                               THEN excluded.value
+                               ELSE COALESCE(ods.trade_transaction.value,    0)
+                                  + COALESCE(excluded.value,                 0)
+                           END,
+        quantity         = CASE
+                               WHEN excluded.batch_id = ods.trade_transaction.batch_id
+                               THEN excluded.quantity
+                               ELSE COALESCE(ods.trade_transaction.quantity, 0)
+                                  + COALESCE(excluded.quantity,              0)
+                           END,
+
+        -- Non-key descriptive fields: always overwrite with latest value
+        quarter          = excluded.quarter,
+        category_chapter = excluded.category_chapter,
+        category_heading = excluded.category_heading,
+        product_name     = excluded.product_name,
+        partner_name     = excluded.partner_name,
+        partner_region   = excluded.partner_region,
+        partner_continent= excluded.partner_continent,
+        fta_keys         = excluded.fta_keys,
+        unit             = excluded.unit,
+        source_system    = excluded.source_system,
+        batch_id         = excluded.batch_id,
+        is_late_arriving = excluded.is_late_arriving,
+        quality_flags    = excluded.quality_flags,
+        updated_at       = NOW()
+"""
+
+
 def _prepare_for_db(df: pd.DataFrame, batch_id: uuid.UUID) -> pd.DataFrame:
     df = df.copy()
 
     # Boolean
-    for col in ["flow_type", "is_late_arriving"]:
+    for col in ["is_late_arriving"]:
         if col in df.columns:
             df[col] = df[col].fillna(False).astype(bool)
 
@@ -144,43 +187,6 @@ def run(batch_id: uuid.UUID | None = None) -> int:
 
         logger.info("Loaded %s rows", len(df))
 
-        # =========================
-        # STEP 1: DEFINE BUSINESS KEY
-        # =========================
-        key_cols = [
-            "year",
-            "month",
-            "hs_code",
-            "partner_code",
-            "flow_type",
-            "record_source",
-        ]
-
-        # ===================
-        # STEP 2: AGGREGATION
-        # ===================
-        df = df.groupby(key_cols, as_index=False).agg(
-            {
-                "value": "sum",
-                "quantity": "sum",
-                "quarter": "first",
-                "category_chapter": "first",
-                "category_heading": "first",
-                "product_name": "first",
-                "partner_name": "first",
-                "partner_region": "first",
-                "partner_continent": "first",
-                "fta_keys": "first",
-                "unit": "first",
-                "source_system": "first",
-                "batch_id": "first",
-                "is_late_arriving": "first",
-                "quality_flags": "first",
-            }
-        )
-
-        logger.info("After aggregation: %s rows", len(df))
-
         # Ensure full schema
         for c in EXPECTED_COLS:
             if c not in df.columns:
@@ -190,8 +196,37 @@ def run(batch_id: uuid.UUID | None = None) -> int:
 
         df = _prepare_for_db(df, batch_id)
 
+        CONFLICT_KEYS = [
+            "year",
+            "month",
+            "hs_code",
+            "partner_code",
+            "flow_type",
+            "record_source",
+        ]
+        pre_dedup = len(df)
+
+        agg: dict[str, str] = {}
+        for col in df.columns:
+            if col in CONFLICT_KEYS:
+                continue
+            elif col in ("value", "quantity"):
+                agg[col] = "sum"
+            else:
+                agg[col] = "last"
+
+        df = df.groupby(CONFLICT_KEYS, dropna=False).agg(agg).reset_index()
+
+        dupes_removed = pre_dedup - len(df)
+        if dupes_removed:
+            logger.warning(
+                "Removed %s duplicate rows within batch (same conflict key). "
+                "Numeric columns were summed; all others kept last value.",
+                dupes_removed,
+            )
+
         # =========================
-        # CREATE TABLE
+        # CREATE TABLE (if not exists)
         # =========================
         with engine.begin() as conn:
             conn.execute(text(TABLE_DDL))
@@ -226,41 +261,18 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             for _, row in df.iterrows()
         ]
 
-        upsert_query = """
-            INSERT INTO ods.trade_transaction (
-                year, quarter, month, hs_code, category_chapter, category_heading, product_name,
-                partner_code, partner_name, partner_region, partner_continent, fta_keys,
-                flow_type, value, quantity, unit, record_source, source_system,
-                batch_id, is_late_arriving, quality_flags
-            ) VALUES %s
-            ON CONFLICT (year, month, hs_code, partner_code, flow_type, record_source)
-            DO UPDATE SET
-                value = EXCLUDED.value,
-                quantity = EXCLUDED.quantity,
-                quarter = EXCLUDED.quarter,
-                category_chapter = EXCLUDED.category_chapter,
-                category_heading = EXCLUDED.category_heading,
-                product_name = EXCLUDED.product_name,
-                partner_name = EXCLUDED.partner_name,
-                partner_region = EXCLUDED.partner_region,
-                partner_continent = EXCLUDED.partner_continent,
-                fta_keys = EXCLUDED.fta_keys,
-                unit = EXCLUDED.unit,
-                source_system = EXCLUDED.source_system,
-                batch_id = EXCLUDED.batch_id,
-                is_late_arriving = EXCLUDED.is_late_arriving,
-                quality_flags = EXCLUDED.quality_flags,
-                updated_at = NOW()
-        """
-
         with engine.begin() as conn:
             raw_conn = conn.connection
             cursor = raw_conn.cursor()
 
-            execute_values(cursor, upsert_query, records, page_size=2000)
+            logger.info("Upserting %s rows into ods.trade_transaction...", len(records))
+            execute_values(cursor, UPSERT_QUERY, records, page_size=2000)
+
             raw_conn.commit()
 
-        logger.info("Upserted %s aggregated rows", len(df))
+        logger.info(
+            "Upsert complete: %s rows processed into ods.trade_transaction", len(df)
+        )
 
     except Exception as exc:
         logger.exception("load_stage_to_ods failed")

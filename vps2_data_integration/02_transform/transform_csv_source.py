@@ -31,6 +31,7 @@ COLUMN_RENAME_MAP = {
     "cmdCode": "cmd_code",
     "cmdDesc": "cmd_desc",
     "reporterISO": "reporter_iso",
+    "reporterDesc": "reporter_desc",
     "partnerISO": "partner_iso",
     "partnerDesc": "partner_desc",
     "flowCode": "flow_code",
