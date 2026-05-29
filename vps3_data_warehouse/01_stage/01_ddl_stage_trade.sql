@@ -37,3 +37,20 @@ CREATE TABLE IF NOT EXISTS stage.stage_csv (
     batch_id UUID,
     extracted_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS stage.stage_db (
+    id BIGSERIAL PRIMARY KEY,
+    exporter_name TEXT NOT NULL,
+    importer_name TEXT NOT NULL,
+    product_code TEXT NOT NULL,
+    product_label TEXT,
+    year INT NOT NULL,
+    month INT NOT NULL,
+    period TEXT NOT NULL,
+    value_usd_k NUMERIC,
+    batch_id TEXT,
+    extracted_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stage_db_period ON stage.stage_db (period);
+CREATE INDEX IF NOT EXISTS idx_stage_db_exporter ON stage.stage_db (exporter_name);

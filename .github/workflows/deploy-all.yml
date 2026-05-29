@@ -1,6 +1,6 @@
 name: Deploy All VPS (Full Stack)
 
-# Manual full-stack deploy: VPS3 → VPS1 → VPS2 (ETL runs last).
+# Manual full-stack deploy: VPS3 → VPS1 → VPS2 deploy, then ETL pipeline run.
 # Use this for first-time production setup or when you need all three updated.
 
 on:
@@ -26,4 +26,10 @@ jobs:
     name: Deploy VPS2 (ETL Engine — 178.128.23.125)
     needs: [deploy-vps1]
     uses: ./.github/workflows/deploy-vps2.yml
+    secrets: inherit
+
+  run-vps2-pipeline:
+    name: Run VPS2 ETL Pipeline
+    needs: [deploy-vps2]
+    uses: ./.github/workflows/run-vps2-pipeline.yml
     secrets: inherit

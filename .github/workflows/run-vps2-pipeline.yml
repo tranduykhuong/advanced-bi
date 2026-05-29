@@ -1,0 +1,39 @@
+name: Run VPS2 ETL Pipeline
+
+# Runs the full ETL pipeline on VPS2 (long-running; keep SSH alive).
+# Manual run: Actions → Run VPS2 ETL Pipeline → Run workflow
+# Called by deploy-all.yml after VPS2 deploy.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: run-vps2-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run-vps2-pipeline:
+    name: Run ETL Pipeline (VPS2 — 178.128.23.125)
+    runs-on: ubuntu-22.04
+    environment:
+      name: vps2-production
+    steps:
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS2 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ vars.VPS2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Run ETL pipeline on VPS2 (one-shot)
+        run: |
+          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=60 \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            docker compose -f docker-compose.vps2.yml run --rm --no-deps etl_engine python run_pipeline.py
+            echo "ETL pipeline run completed."
+          ENDSSH

@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# VPS2 stack — ETL Engine (connects to remote VPS3 DB + VPS1 API)
+# Deploy on 178.128.23.125 (or locally with overrides in .env)
+# ---------------------------------------------------------------------------
+
+networks:
+  vps2_net:
+    driver: bridge
+
+services:
+  etl_engine:
+    build:
+      context: ./vps2_data_integration
+      dockerfile: Dockerfile
+    container_name: etl_engine
+    restart: "no"
+    environment:
+      DB_HOST: ${DB_HOST:?DB_HOST is required}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${POSTGRES_DB:-bi_dw}
+      DB_USER: ${POSTGRES_USER:-bi_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      VPS1_API_URL: ${VPS1_API_URL:?VPS1_API_URL is required}
+      VPS1_DB_HOST: ${VPS1_DB_HOST:?VPS1_DB_HOST is required}
+      VPS1_DB_PORT: ${VPS1_DB_PORT:-5432}
+      VPS1_POSTGRES_DB: ${VPS1_POSTGRES_DB:-trademap_db}
+      VPS1_POSTGRES_USER: ${VPS1_POSTGRES_USER:-trademap_admin}
+      VPS1_POSTGRES_PASSWORD: ${VPS1_POSTGRES_PASSWORD:?VPS1_POSTGRES_PASSWORD is required}
+      RAW_DATA_PATH: ${RAW_DATA_PATH:-/raw_data}
+      ETL_CHUNK_SIZE: ${ETL_CHUNK_SIZE:-10000}
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./vps1_data_sources/raw_data:/raw_data:ro
+    networks:
+      - vps2_net
