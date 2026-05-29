@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import load_config
 from common.logging_config import setup_logging, get_logger
 from common.db import get_engine, register_batch, complete_batch
+from common.chunking import DEFAULT_CHUNK_SIZE
 
 logger = get_logger(__name__)
 
@@ -123,9 +124,14 @@ def apply_business_rules(df: pd.DataFrame) -> pd.DataFrame:
         df["value"].fillna(0) <= 0, "quality_flags"
     ].apply(lambda x: x + ["INVALID_VALUE"])
 
+    original_product_name = df["product_name"].copy()
     df[["hs_code", "category_chapter", "category_heading", "product_name"]] = df[
         "hs_code"
     ].apply(lambda x: pd.Series(parse_hs_code(x)))
+    # Restore descriptive product names (e.g. from Trade Map product_label) that
+    # parse_hs_code would have overwritten with the raw HS string.
+    has_description = original_product_name.notna() & (original_product_name.astype(str).str.strip() != "")
+    df.loc[has_description, "product_name"] = original_product_name[has_description]
 
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce")
@@ -152,6 +158,12 @@ def apply_business_rules(df: pd.DataFrame) -> pd.DataFrame:
 
     df["quarter"] = df["month"].apply(calculate_quarter)
 
+    before = len(df)
+    df = df[df["value"].fillna(0) > 0].reset_index(drop=True)
+    dropped = before - len(df)
+    if dropped:
+        logger.info("Dropped %d rows with value <= 0", dropped)
+
     return df
 
 
@@ -164,6 +176,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
     if managed_batch:
         batch_id = register_batch(engine, "stage_to_ods")
 
+    total_rows = 0
     try:
         tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
         input_file = tmp_dir / "stage_extracted.csv"
@@ -171,31 +184,42 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         if not input_file.exists():
             raise FileNotFoundError(f"Missing file: {input_file}")
 
-        df = pd.read_csv(input_file, low_memory=False, dtype={"hs_code": str})
-        logger.info("Transformed %s rows", len(df))
-
-        df = apply_business_rules(df)
-
-        for c in EXPECTED_COLS:
-            if c not in df.columns:
-                if c in ["quality_flags", "fta_keys"]:
-                    df[c] = [[] for _ in range(len(df))]
-                else:
-                    df[c] = None
-
-        df = df[EXPECTED_COLS]
-
         output_file = tmp_dir / "stage_to_ods_transformed.csv"
+        if output_file.exists():
+            output_file.unlink()
 
-        df.to_csv(
-            output_file,
-            index=False,
-            encoding="utf-8",
-            quoting=csv.QUOTE_NONNUMERIC,
-            quotechar='"',
-        )
+        first_chunk = True
+        for chunk in pd.read_csv(
+            input_file,
+            chunksize=DEFAULT_CHUNK_SIZE,
+            low_memory=False,
+            dtype={"hs_code": str},
+        ):
+            chunk = apply_business_rules(chunk)
 
-        logger.info("Transform completed: %s rows → %s", len(df), output_file)
+            for c in EXPECTED_COLS:
+                if c not in chunk.columns:
+                    if c in ["quality_flags", "fta_keys"]:
+                        chunk[c] = [[] for _ in range(len(chunk))]
+                    else:
+                        chunk[c] = None
+
+            chunk = chunk[EXPECTED_COLS]
+
+            chunk.to_csv(
+                output_file,
+                mode="w" if first_chunk else "a",
+                header=first_chunk,
+                index=False,
+                encoding="utf-8",
+                quoting=csv.QUOTE_NONNUMERIC,
+                quotechar='"',
+            )
+
+            total_rows += len(chunk)
+            first_chunk = False
+
+        logger.info("Transform completed: %s rows → %s", total_rows, output_file)
 
     except Exception as exc:
         logger.exception("stage_to_ods failed")
@@ -204,9 +228,9 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         raise
 
     if managed_batch:
-        complete_batch(engine, batch_id, rows_loaded=len(df))
+        complete_batch(engine, batch_id, rows_loaded=total_rows)
 
-    return len(df)
+    return total_rows
 
 
 if __name__ == "__main__":
