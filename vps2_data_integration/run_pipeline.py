@@ -30,17 +30,26 @@ from common.db import get_engine, register_batch, complete_batch
 
 PHASES = [
     ("01_extract.extract_api", "Phase 01: Extract API"),
+    # ETL DB → Stage
     ("01_extract.extract_trademap", "Phase 01: Extract Trade Map (VPS1)"),
-    ("01_extract.extract_txt_files", "Phase 01: Extract TXT Files"),
-    ("01_extract.extract_csv", "Phase 01: Extract CSV Files"),
-    ("02_transform.transform_text_source", "Phase 02: Transform TXT → Stage artifact"),
-    ("02_transform.stage_to_ods", "Phase 02: Stage → ODS"),
-    ("02_transform.ods_to_nds", "Phase 02: ODS → NDS"),
-    ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving"),
-    ("03_load.load_stage_text", "Phase 03: Load stage_text"),
-    ("03_load.load_stage_csv", "Phase 03: Load stage_csv"),
     ("03_load.load_stage_db", "Phase 03: Load stage_db"),
-    ("03_load.nds_to_dds_scd", "Phase 03:  NDS → DDS SCD"),
+    # ETL CSV → Stage
+    ("01_extract.extract_csv", "Phase 01: Extract CSV (UN Comtrade)"),
+    ("02_transform.transform_csv_source", "Phase 02: Transform CSV → Stage"),
+    ("03_load.load_stage_csv", "Phase 03: Load stage_csv"),
+    # ETL TXT → Stage
+    ("01_extract.extract_txt_files", "Phase 01: Extract TXT (NSO)"),
+    ("02_transform.transform_text_source", "Phase 02: Transform TXT → Stage"),
+    ("03_load.load_stage_text", "Phase 03: Load stage_text"),
+    # ETL Stage → ODS
+    ("01_extract.extract_stage", "Phase 01: Extract from Stage"),
+    ("02_transform.stage_to_ods", "Phase 02: Stage → ODS (Transform + BR)"),
+    # ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving Handler"),
+    ("03_load.stage_to_ods", "Phase 03: Load into ODS (UPSERT)"),
+    # ETL ODS → NDS
+    ("02_transform.ods_to_nds", "Phase 02: ODS → NDS (3NF)"),
+    # ETL NDS → DDS
+    ("03_load.nds_to_dds_scd", "Phase 03: NDS → DDS (SCD)"),
 ]
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -91,7 +100,7 @@ def main() -> int:
         return 1
 
     complete_batch(engine, pipeline_batch_id, status="SUCCESS")
-    logger.info("Pipeline completed successfully.")
+    logger.info("✅ Pipeline completed successfully.")
     return 0
 
 

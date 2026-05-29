@@ -13,44 +13,83 @@ Entry point:
 
 from __future__ import annotations
 
+import sys
+import uuid
 from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from config import load_config
+from common.logging_config import setup_logging, get_logger
+from common.db import get_engine, register_batch, complete_batch
+
+logger = get_logger(__name__)
+
 COLUMN_RENAME_MAP = {
-    "cmdCode":      "cmd_code",
-    "cmdDesc":      "cmd_desc",
-    "reporterISO":  "reporter_iso",
-    "partnerISO":   "partner_iso",
-    "partnerDesc":  "partner_desc",
-    "flowCode":     "flow_code",
-    "flowDesc":     "flow_desc",
+    "cmdCode": "cmd_code",
+    "cmdDesc": "cmd_desc",
+    "reporterISO": "reporter_iso",
+    "partnerISO": "partner_iso",
+    "partnerDesc": "partner_desc",
+    "flowCode": "flow_code",
+    "flowDesc": "flow_desc",
     "primaryValue": "primary_value",
-    "cifvalue":     "cif_value",
-    "fobvalue":     "fob_value",
-    "netWgt":       "net_wgt",
-    "qtyUnitAbbr":  "qty_unit",
-    "motCode":      "mot_code",
-    "motDesc":      "mot_desc",
+    "cifvalue": "cif_value",
+    "fobvalue": "fob_value",
+    "netWgt": "net_wgt",
+    "qtyUnitAbbr": "qty_unit",
+    "motCode": "mot_code",
+    "motDesc": "mot_desc",
 }
 
 NUMERIC_COLUMNS = ("primary_value", "cif_value", "fob_value", "net_wgt", "qty")
 
 
-def run() -> pd.DataFrame:
-    tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
-    input_file = tmp_dir / "trade_extracted.csv"
-    output_file = tmp_dir / "trade_transformed.csv"
+def run(batch_id: uuid.UUID | None = None) -> pd.DataFrame:
+    cfg = load_config()
+    setup_logging(level=cfg.log_level)
+    engine = get_engine(cfg)
 
-    df = pd.read_csv(input_file, dtype=str)
+    managed_batch = batch_id is None
 
-    df = df.rename(columns=COLUMN_RENAME_MAP)
+    if managed_batch:
+        batch_id = register_batch(engine, "transform_csv_source")
 
-    for col in NUMERIC_COLUMNS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    try:
+        tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
+        input_file = tmp_dir / "trade_extracted.csv"
+        output_file = tmp_dir / "trade_transformed.csv"
 
-    df.to_csv(output_file, index=False)
+        if not input_file.exists():
+            raise FileNotFoundError(f"Extracted artifact not found: {input_file}")
+
+        df = pd.read_csv(input_file, dtype=str)
+
+        df = df.rename(columns=COLUMN_RENAME_MAP)
+
+        for col in NUMERIC_COLUMNS:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df.to_csv(output_file, index=False)
+
+        rows_processed = len(df)
+
+        logger.info("Transformed %s rows → %s", rows_processed, output_file)
+
+    except Exception as exc:
+        logger.exception("transform_csv_source failed: %s", exc)
+
+        if managed_batch:
+            complete_batch(engine, batch_id, status="FAILED", error_message=str(exc))
+
+        raise
+
+    if managed_batch:
+        complete_batch(engine, batch_id, rows_loaded=rows_processed)
+
     return df
 
 
