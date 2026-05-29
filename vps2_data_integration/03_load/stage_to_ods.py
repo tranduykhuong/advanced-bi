@@ -120,7 +120,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         batch_id = register_batch(engine, "load_stage_to_ods")
 
     try:
-        input_file = Path("/app/tmp/stage_to_ods_transformed.csv")
+        tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
+        input_file = tmp_dir / "stage_to_ods_transformed.csv"
         if not input_file.exists():
             raise FileNotFoundError(f"Missing file: {input_file}")
 

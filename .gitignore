@@ -48,3 +48,5 @@ Thumbs.db
 *.pem
 *.key
 known_hosts
+
+tmp/

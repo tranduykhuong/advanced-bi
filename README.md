@@ -82,7 +82,6 @@ open http://localhost:8000/docs
 docker compose run --rm etl_engine python run_pipeline.py
 
 # Or run individual phases
-docker compose run --rm etl_engine python 01_extract/extract_api.py
 docker compose run --rm etl_engine python 01_extract/extract_csv_files.py
 docker compose run --rm etl_engine python 02_transform/stage_to_ods.py
 docker compose run --rm etl_engine python 02_transform/ods_to_nds.py
@@ -165,7 +164,7 @@ Project/
 │   │   ├── db.py               # DB connection helper (SQLAlchemy)
 │   │   └── logging_config.py   # Structured JSON logging
 │   ├── 01_extract/
-│   │   ├── extract_api.py
+│   │   ├── extract_text_files.py
 │   │   └── extract_csv_files.py
 │   ├── 02_transform/
 │   │   ├── stage_to_ods.py

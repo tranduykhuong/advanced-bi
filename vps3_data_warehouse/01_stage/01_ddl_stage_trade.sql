@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS stage.stage_csv (
     fob_value NUMERIC,
     net_wgt NUMERIC,
     qty NUMERIC,
-    qty_unit VARCHAR(10),
+    qty_unit VARCHAR(50),
     mot_code VARCHAR(10),
     mot_desc TEXT,
     batch_id UUID,
