@@ -51,19 +51,35 @@ def get_psycopg2_conn(cfg: AppConfig) -> Generator[psycopg2.extensions.connectio
         conn.close()
 
 
-def register_batch(engine: Engine, batch_name: str) -> uuid.UUID:
+def batch_exists(engine: Engine, batch_id: uuid.UUID) -> bool:
+    """Return True if batch_id is already present in etl_batch_log."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT 1 FROM public.etl_batch_log WHERE batch_id = :bid"),
+            {"bid": str(batch_id)},
+        ).first()
+    return row is not None
+
+
+def register_batch(
+    engine: Engine,
+    batch_name: str,
+    batch_id: uuid.UUID | None = None,
+) -> uuid.UUID:
     """Insert a new row into public.etl_batch_log and return the batch UUID."""
-    batch_id = uuid.uuid4()
+    resolved_batch_id = batch_id or uuid.uuid4()
     with engine.begin() as conn:
         conn.execute(
             text(
                 "INSERT INTO public.etl_batch_log (batch_id, batch_name, status) "
                 "VALUES (:bid, :name, 'RUNNING')"
             ),
-            {"bid": str(batch_id), "name": batch_name},
+            {"bid": str(resolved_batch_id), "name": batch_name},
         )
-    logger.info("Registered batch batch_id=%s name=%s", batch_id, batch_name)
-    return batch_id
+    logger.info(
+        "Registered batch batch_id=%s name=%s", resolved_batch_id, batch_name
+    )
+    return resolved_batch_id
 
 
 def complete_batch(
