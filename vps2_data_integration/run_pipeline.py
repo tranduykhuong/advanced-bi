@@ -48,7 +48,6 @@ PHASES = [
     # ETL DB → Stage
     ("01_extract.extract_trademap", "Phase 01: Extract Trade Map (VPS1)"),
     ("03_load.load_stage_db", "Phase 03: Load stage_db"),
-
     # ETL Stage → ODS (FTA)
     ("01_extract.extract_stage_aptiad", "Phase 01: Extract stage_aptiad"),
     ("02_transform.fta_stage_to_ods", "Phase 02: FTA Stage → ODS (Transform)"),
@@ -57,8 +56,7 @@ PHASES = [
     ("01_extract.extract_stage", "Phase 01: Extract from Stage"),
     ("02_transform.stage_to_ods", "Phase 02: Stage → ODS (Transform + BR)"),
     # ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving Handler"),
-    ("03_load.stage_to_ods", "Phase 03: Load into ODS (UPSERT)"),
-
+    ("03_load.load_stage_to_ods", "Phase 03: Load into ODS (UPSERT)"),
     # ETL ODS → NDS
     ("02_transform.ods_to_nds", "Phase 02: ODS → NDS (3NF)"),
     # ETL NDS → DDS

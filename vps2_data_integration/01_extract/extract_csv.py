@@ -2,7 +2,7 @@
 Extract trade data from CSV sources (UN Comtrade format).
 
 Key columns extracted:
-    - period, cmdCode, cmdDesc, reporterISO, partnerISO, partnerDesc
+    - period, cmdCode, cmdDesc, reporterISO, reporterDesc, partnerISO, partnerDesc
     - flowCode, flowDesc, primaryValue, cifValue, fobValue
     - netWgt, qty, qtyUnit, motCode, motDesc
 """
@@ -30,6 +30,7 @@ REQUIRED_COLUMNS = [
     "cmdCode",
     "cmdDesc",
     "reporterISO",
+    "reporterDesc",
     "partnerISO",
     "partnerDesc",
     "flowCode",

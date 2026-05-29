@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS stage.stage_csv (
     cmd_code VARCHAR(10) NOT NULL,
     cmd_desc TEXT,
     reporter_iso VARCHAR(3),
+    reporter_desc TEXT,
     partner_iso VARCHAR(3),
     partner_desc TEXT,
     flow_code VARCHAR(5),

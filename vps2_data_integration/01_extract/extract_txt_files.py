@@ -72,7 +72,7 @@ def extract_rows_from_text(text: str, source_file: str) -> list[dict]:
         goods_name = _normalize_text(fields[0]) if fields[0].strip() else None
         country_name = None
         if not goods_name and len(fields) > 1 and fields[1].strip():
-            country_name = _normalize_text(fields[1])
+            country_name = _normalize_text(fields[1].strip())
 
         if goods_name:
             current_goods = goods_name
