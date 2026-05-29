@@ -1,25 +1,10 @@
 """
 ETL Pipeline Orchestrator
 
-Runs the full Hybrid Inmon-Kimball ETL pipeline in strict phase order:
+Runs the full Hybrid Inmon-Kimball ETL pipeline in strict phase order.
 
-  Phase 01a  extract_api   — VPS1 API → stage.*
-  Phase 01b  extract_txt_files      — raw CSV/Excel → stage.*
-  Phase 02a  stage_to_ods         — stage.* → ods.*
-  Phase 02b  stage_to_nds         — ods.* → nds.* (3NF + fuzzy match)
-  Phase 02c  late_arriving_handler  — reprocess late-arriving ODS rows
-  Phase 03   nds_to_dds_scd         — nds.* → dds.* (SCD1/SCD2 + fact)
-
-Each phase module exposes a run(batch_id) function so it can be called
-standalone for debugging or as part of this full pipeline.
-
-Exit codes:
-  0  — all phases succeeded
-  1  — one or more phases failed (check logs for details)
-
-Usage:
-  python run_pipeline.py                     # full pipeline
-  python 01_extract/extract_api.py  # single phase
+Phase Structure:
+  01_Extract → 02_Transform → 03_Load
 """
 
 from __future__ import annotations
@@ -37,16 +22,23 @@ from common.logging_config import setup_logging
 from common.db import get_engine, register_batch, complete_batch
 
 PHASES = [
-    ("01_extract.extract_api", "Phase 01: Extract API"),
-    ("01_extract.extract_txt_files", "Phase 01: Extract TXT Files"),
-    ("01_extract.extract_csv", "Phase 01: Extract CSV Files"),
-    ("02_transform.transform_text_source", "Phase 02: Transform TXT → Stage artifact"),
-    ("02_transform.stage_to_ods", "Phase 02: Stage → ODS"),
-    ("02_transform.ods_to_nds", "Phase 02: ODS → NDS"),
-    ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving"),
-    ("03_load.load_stage_text", "Phase 03: Load stage_text"),
+    # ETL CSV → Stage
+    ("01_extract.extract_csv", "Phase 01: Extract CSV (UN Comtrade)"),
+    ("02_transform.transform_csv_source", "Phase 02: Transform CSV → Stage"),
     ("03_load.load_stage_csv", "Phase 03: Load stage_csv"),
-    ("03_load.nds_to_dds_scd", "Phase 03:  NDS → DDS SCD"),
+    # ETL TXT → Stage
+    ("01_extract.extract_txt_files", "Phase 01: Extract TXT (NSO)"),
+    ("02_transform.transform_text_source", "Phase 02: Transform TXT → Stage"),
+    ("03_load.load_stage_text", "Phase 03: Load stage_text"),
+    # ETL Stage → ODS
+    ("01_extract.extract_stage", "Phase 01: Extract from Stage"),
+    ("02_transform.stage_to_ods", "Phase 02: Stage → ODS (Transform + BR)"),
+    # ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving Handler"),
+    ("03_load.stage_to_ods", "Phase 03: Load into ODS (UPSERT)"),
+    # ETL ODS → NDS
+    ("02_transform.ods_to_nds", "Phase 02: ODS → NDS (3NF)"),
+    # ETL NDS → DDS
+    ("03_load.nds_to_dds_scd", "Phase 03: NDS → DDS (SCD)"),
 ]
 
 
@@ -60,7 +52,7 @@ def main() -> int:
         engine,
         f"full_pipeline_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
     )
-    logger.info("Pipeline started  batch_id=%s", pipeline_batch_id)
+    logger.info("Pipeline started | batch_id=%s", pipeline_batch_id)
 
     failed_phases: list[str] = []
 
@@ -72,6 +64,8 @@ def main() -> int:
             logger.info("    %s  OK", label)
         except NotImplementedError:
             logger.warning("    %s  SKIPPED (not yet implemented)", label)
+        except ModuleNotFoundError:
+            logger.warning("    %s  SKIPPED (module not found)", label)
         except Exception as exc:
             logger.error("    %s  FAILED: %s", label, exc)
             failed_phases.append(label)
@@ -84,7 +78,7 @@ def main() -> int:
         return 1
 
     complete_batch(engine, pipeline_batch_id, status="SUCCESS")
-    logger.info("Pipeline completed successfully.")
+    logger.info("✅ Pipeline completed successfully.")
     return 0
 
 

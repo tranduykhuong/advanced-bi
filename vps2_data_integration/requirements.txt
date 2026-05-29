@@ -5,3 +5,5 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 rapidfuzz==3.9.3
 sqlalchemy==2.0.30
+country-converter
+pycountry
