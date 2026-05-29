@@ -82,6 +82,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             batch_id_str = str(batch_id)
 
             for chunk in pd.read_csv(transformed_file, chunksize=DEFAULT_CHUNK_SIZE):
+                logger.info("Loading chunk: %d rows", len(chunk))
                 chunk["batch_id"] = batch_id_str
                 chunk.to_sql(
                     "stage_db",

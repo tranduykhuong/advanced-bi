@@ -73,6 +73,19 @@ jobs:
             docker compose -f docker-compose.vps3.yml ps postgres_dw
           ENDSSH
 
+      - name: Apply SQL migrations (idempotent)
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
+            set -e
+            cd /opt/bi_dw
+            shopt -s nullglob
+            for f in vps3_data_warehouse/migrations/*.sql; do
+              echo "Applying migration: $f"
+              docker compose -f docker-compose.vps3.yml exec -T postgres_dw \
+                psql -v ON_ERROR_STOP=1 -U bi_admin -d bi_dw < "$f"
+            done
+          ENDSSH
+
       - name: Verify DW schemas exist
         run: |
           ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} \

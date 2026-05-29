@@ -8,8 +8,19 @@ from __future__ import annotations
 import os
 import socket
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 DOCKER_VPS1_HOST = "postgres_vps1"
+DOCKER_DW_HOST = "postgres_dw"
+
+_repo_root = Path(__file__).resolve().parents[1]
+_env_file = _repo_root / ".env"
+if _env_file.exists():
+    load_dotenv(_env_file)
+else:
+    load_dotenv()
 
 
 @dataclass(frozen=True)
@@ -96,6 +107,22 @@ def _resolve_vps1_db_endpoint() -> tuple[str, int]:
     return configured_host, internal_port
 
 
+def _resolve_dw_db_endpoint() -> tuple[str, int]:
+    """Resolve VPS3 warehouse DB host/port (inside or outside Docker)."""
+    configured_host = os.getenv("DB_HOST", DOCKER_DW_HOST)
+    mapped_port = int(os.getenv("POSTGRES_PORT", "5432"))
+    internal_port = int(os.getenv("DB_PORT", "5432"))
+
+    if configured_host in ("localhost", "127.0.0.1"):
+        port = int(os.getenv("DB_PORT") or str(mapped_port))
+        return configured_host, port
+
+    if configured_host == DOCKER_DW_HOST and not _host_resolves(configured_host):
+        return "localhost", mapped_port
+
+    return configured_host, internal_port
+
+
 def load_config() -> AppConfig:
     """Build AppConfig from environment. Raises ValueError for missing required vars."""
     password = os.environ.get("DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD")
@@ -115,13 +142,14 @@ def load_config() -> AppConfig:
         )
 
     vps1_host, vps1_port = _resolve_vps1_db_endpoint()
+    dw_host, dw_port = _resolve_dw_db_endpoint()
 
     return AppConfig(
         db=DatabaseConfig(
-            host=os.getenv("DB_HOST", "postgres_dw"),
-            port=int(os.getenv("DB_PORT", "5432")),
-            name=os.getenv("DB_NAME", "bi_dw"),
-            user=os.getenv("DB_USER", "bi_admin"),
+            host=dw_host,
+            port=dw_port,
+            name=os.getenv("DB_NAME", os.getenv("POSTGRES_DB", "bi_dw")),
+            user=os.getenv("DB_USER", os.getenv("POSTGRES_USER", "bi_admin")),
             password=password,
         ),
         vps1_db=Vps1DatabaseConfig(

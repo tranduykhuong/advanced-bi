@@ -29,7 +29,6 @@ EXPECTED_COLS = [
     "partner_name",
     "partner_region",
     "partner_continent",
-    "fta_keys",
     "flow_type",
     "value",
     "quantity",
@@ -59,7 +58,6 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     partner_name        TEXT,
     partner_region      TEXT,
     partner_continent   TEXT,
-    fta_keys            INT[],
     flow_type           BOOLEAN NOT NULL,
     value               NUMERIC(18,6),
     quantity            NUMERIC(18,6),
@@ -82,7 +80,7 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
 UPSERT_QUERY = """
     INSERT INTO ods.trade_transaction (
         year, quarter, month, hs_code, category_chapter, category_heading, product_name,
-        partner_code, partner_name, partner_region, partner_continent, fta_keys,
+        partner_code, partner_name, partner_region, partner_continent,
         flow_type, value, quantity, unit, record_source, source_system,
         batch_id, is_late_arriving, quality_flags
     ) VALUES %s
@@ -110,7 +108,6 @@ UPSERT_QUERY = """
         partner_name     = excluded.partner_name,
         partner_region   = excluded.partner_region,
         partner_continent= excluded.partner_continent,
-        fta_keys         = excluded.fta_keys,
         unit             = excluded.unit,
         source_system    = excluded.source_system,
         batch_id         = excluded.batch_id,
@@ -129,7 +126,7 @@ def _prepare_for_db(df: pd.DataFrame, batch_id: uuid.UUID) -> pd.DataFrame:
             df[col] = df[col].fillna(False).astype(bool)
 
     # Array
-    for col in ["quality_flags", "fta_keys"]:
+    for col in ["quality_flags"]:
         if col in df.columns:
             df[col] = df[col].apply(lambda x: x if isinstance(x, list) else [])
 
@@ -163,7 +160,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         batch_id = register_batch(engine, "load_stage_to_ods")
 
     try:
-        input_file = Path("/app/tmp/stage_to_ods_transformed.csv")
+        tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
+        input_file = tmp_dir / "stage_to_ods_transformed.csv"
         if not input_file.exists():
             raise FileNotFoundError(f"Missing file: {input_file}")
 
@@ -247,7 +245,6 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                 row["partner_name"],
                 row["partner_region"],
                 row["partner_continent"],
-                row["fta_keys"],
                 row["flow_type"],
                 row["value"],
                 row["quantity"],

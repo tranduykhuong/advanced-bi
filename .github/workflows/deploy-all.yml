@@ -1,6 +1,6 @@
 name: Deploy All VPS (Full Stack)
 
-# Manual full-stack deploy: VPS3 → VPS1 → VPS2 deploy, then ETL pipeline run.
+# Manual full-stack deploy: VPS3 → VPS1 → VPS2 deploy, then ETL pipeline (4 phases).
 # Use this for first-time production setup or when you need all three updated.
 
 on:

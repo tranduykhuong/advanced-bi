@@ -26,15 +26,9 @@ sys.path.insert(
 )
 
 from config import load_config
-from common.logging_config import (
-    setup_logging,
-    get_logger,
-)
-from common.db import (
-    get_engine,
-    register_batch,
-    complete_batch,
-)
+from common.logging_config import setup_logging, get_logger
+from common.db import get_engine, register_batch, complete_batch
+from common.chunking import DEFAULT_CHUNK_SIZE
 
 logger = get_logger(__name__)
 
@@ -51,7 +45,6 @@ EXPECTED_COLS = [
     "partner_name",
     "partner_region",
     "partner_continent",
-    "fta_keys",
     "flow_type",
     "value",
     "quantity",
@@ -415,9 +408,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
 
         df = apply_business_rules(df)
 
+        # Đảm bảo đầy đủ các cột
         for c in EXPECTED_COLS:
             if c not in df.columns:
-                if c in ["quality_flags", "fta_keys"]:
+                if c in ["quality_flags"]:
                     df[c] = [[] for _ in range(len(df))]
                 else:
                     df[c] = None

@@ -1,0 +1,127 @@
+name: Run VPS2 ETL Phase
+
+# Chạy ĐÚNG 1 phase group trên VPS2 — không chạy các phase còn lại.
+#
+# Manual: Actions → Run VPS2 ETL Phase → chọn phase_group → Run workflow
+# Gọi nội bộ: run-vps2-pipeline.yml (full pipeline = 4 lần gọi workflow này tuần tự)
+#
+# Phase groups:
+#   extract-stage — Extract & Load Stage
+#   stage-ods     — Stage → ODS
+#   ods-nds       — ODS → NDS
+#   nds-dds       — NDS → DDS
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase_group:
+        description: Phase cần chạy (chỉ chạy phase này)
+        required: true
+        type: choice
+        options:
+          - extract-stage
+          - stage-ods
+          - ods-nds
+          - nds-dds
+      batch_id:
+        description: Batch UUID (tùy chọn; để trống = tạo batch mới)
+        required: false
+        type: string
+      finalize:
+        description: Đánh dấu batch SUCCESS/FAILED sau phase này
+        required: false
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      phase_group:
+        description: ETL phase group to run (one group only)
+        required: true
+        type: string
+      batch_id:
+        description: Pipeline batch UUID shared across phase jobs
+        required: false
+        type: string
+      finalize:
+        description: Mark the pipeline batch complete after this phase
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      batch_id:
+        description: Pipeline batch UUID used for this run
+        value: ${{ jobs.run-vps2-etl-phase.outputs.batch_id }}
+
+concurrency:
+  group: run-vps2-etl-${{ inputs.phase_group }}
+  cancel-in-progress: false
+
+jobs:
+  run-vps2-etl-phase:
+    name: "ETL only: ${{ inputs.phase_group }}"
+    runs-on: ubuntu-22.04
+    environment:
+      name: vps2-production
+    outputs:
+      batch_id: ${{ steps.run.outputs.batch_id }}
+    steps:
+      - name: Confirm single-phase run
+        run: |
+          echo "Selected phase : ${{ inputs.phase_group }}"
+          echo "Other phases   : SKIPPED (not executed)"
+          echo "batch_id input : ${{ inputs.batch_id || '(auto-generate)' }}"
+          echo "finalize       : ${{ inputs.finalize }}"
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add VPS2 to known_hosts
+        run: |
+          ssh-keyscan -H ${{ vars.VPS2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Run selected ETL phase on VPS2
+        id: run
+        env:
+          PHASE_GROUP: ${{ inputs.phase_group }}
+          BATCH_ID: ${{ inputs.batch_id }}
+          FINALIZE: ${{ inputs.finalize }}
+        run: |
+          case "${PHASE_GROUP}" in
+            extract-stage|stage-ods|ods-nds|nds-dds) ;;
+            *)
+              echo "Invalid phase_group: ${PHASE_GROUP}" >&2
+              exit 1
+              ;;
+          esac
+
+          FINALIZE_FLAG=""
+          if [ "${FINALIZE}" = "true" ]; then
+            FINALIZE_FLAG="--finalize"
+          fi
+
+          BATCH_ARG=""
+          if [ -n "${BATCH_ID}" ]; then
+            BATCH_ARG="--batch-id ${BATCH_ID}"
+          fi
+
+          echo "Executing: run_pipeline.py --phase ${PHASE_GROUP} ${BATCH_ARG} ${FINALIZE_FLAG}"
+
+          OUTPUT=$(ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=60 \
+            ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << ENDSSH
+            set -e
+            cd /opt/bi_dw
+            docker compose -f docker-compose.vps2.yml run --rm --no-deps etl_engine \
+              python run_pipeline.py --phase ${PHASE_GROUP} ${BATCH_ARG} ${FINALIZE_FLAG}
+          ENDSSH
+          )
+
+          echo "${OUTPUT}"
+          PARSED_BATCH_ID=$(echo "${OUTPUT}" | grep '^ETL_BATCH_ID=' | tail -1 | cut -d= -f2)
+          if [ -z "${PARSED_BATCH_ID}" ]; then
+            echo "Failed to parse ETL_BATCH_ID from pipeline output." >&2
+            exit 1
+          fi
+          echo "batch_id=${PARSED_BATCH_ID}" >> "${GITHUB_OUTPUT}"
+          echo "Done. Only phase '${PHASE_GROUP}' was executed. batch_id=${PARSED_BATCH_ID}"

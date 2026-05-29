@@ -58,7 +58,46 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             'ton' as unit,
             'NSO' as record_source,
             'stage_text' as source_system
-        FROM stage.stage_text;
+        FROM stage.stage_text
+
+        UNION ALL
+
+        SELECT
+            year,
+            month,
+            product_code AS hs_code,
+            product_label AS product_name,
+            NULL AS partner_code,
+            CASE
+                WHEN TRIM(importer_name) ILIKE 'Viet Nam'
+                  OR TRIM(importer_name) ILIKE 'Vietnam'
+                THEN exporter_name
+                WHEN TRIM(exporter_name) ILIKE 'Viet Nam'
+                  OR TRIM(exporter_name) ILIKE 'Vietnam'
+                THEN importer_name
+            END AS partner_name,
+            CASE
+                WHEN TRIM(importer_name) ILIKE 'Viet Nam'
+                  OR TRIM(importer_name) ILIKE 'Vietnam'
+                THEN FALSE
+                WHEN TRIM(exporter_name) ILIKE 'Viet Nam'
+                  OR TRIM(exporter_name) ILIKE 'Vietnam'
+                THEN TRUE
+            END AS flow_type,
+            value_usd_k * 1000 AS value,
+            0 AS quantity,
+            '' AS unit,
+            'TRADE_MAP' AS record_source,
+            'stage_db' AS source_system
+        FROM stage.stage_db
+        WHERE product_code IS NOT NULL
+          AND UPPER(TRIM(product_code)) != 'TOTAL'
+          AND (
+              TRIM(importer_name) ILIKE 'Viet Nam'
+              OR TRIM(importer_name) ILIKE 'Vietnam'
+              OR TRIM(exporter_name) ILIKE 'Viet Nam'
+              OR TRIM(exporter_name) ILIKE 'Vietnam'
+          );
         """
 
         tmp_dir = Path(__file__).resolve().parents[1] / "tmp"

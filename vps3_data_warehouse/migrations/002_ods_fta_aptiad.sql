@@ -1,72 +1,26 @@
--- =============================================================================
--- 01_ddl_ods_trade.sql — Operational Data Store (ODS) Layer DDL
--- Schema: ods
---
--- Design rules for this layer (Inmon):
---   • Typed columns — data promoted from stg after cleansing.
---   • Natural business keys preserved; no surrogate keys yet.
---   • One row per source system event — deduplicated on grain key.
---   • batch_id (UUID) and source_system provide full lineage back to stage.
---
--- TODO: Finalize column types once stg schema is locked.
---       Unique constraint grain must match the ETL dedup key.
--- =============================================================================
+-- Migration 002: expand ods.fta for APTIAD reference data (SCD Type 1 on aptiad_no)
+-- Safe for empty or legacy minimal ods.fta — drops and recreates the table.
 
-CREATE SCHEMA IF NOT EXISTS ods;
+DROP TABLE IF EXISTS ods.fta;
 
--- ============================================================================
--- ods.trade_transaction (Main table)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS ods.trade_transaction (
-    ods_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    
-    year                INTEGER NOT NULL,
-    quarter             SMALLINT,
-    month               SMALLINT NOT NULL,
-    hs_code             VARCHAR(8),
-    category_chapter    TEXT,
-    category_heading    TEXT,
-    product_name        TEXT,
-    partner_code        VARCHAR(3),
-    partner_name        TEXT,
-    partner_region      TEXT,
-    partner_continent   TEXT,
-    flow_type           BOOLEAN NOT NULL,
-    value               NUMERIC(18,6),               -- USD
-    quantity            NUMERIC(18,6),
-    unit                VARCHAR(20),                 -- ton, kg, ...
-    record_source       VARCHAR(20),                 -- UN_COMTRADE, NSO, TRADE_MAP
-    
-    -- Lineage & Quality
-    source_system       VARCHAR(50) NOT NULL,
-    batch_id            UUID NOT NULL,
-    is_late_arriving    BOOLEAN DEFAULT FALSE,
-    quality_flags       TEXT[],                      -- array of flags
-    created_at          TIMESTAMPTZ DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ DEFAULT NOW(),
-    
-    CONSTRAINT uq_ods_trade_transaction 
-        UNIQUE (year, month, hs_code, partner_code, flow_type, record_source)
-);
-
--- ============================================================================
--- ods.fta (APTIAD reference data — SCD Type 1 on aptiad_no)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS ods.fta (
+CREATE TABLE ods.fta (
     fta_id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     aptiad_no                       INTEGER NOT NULL,
 
+    -- Core agreement attributes
     fta_name                        VARCHAR(300),
     member_countries                TEXT[],
     status                          VARCHAR(80),
     scope                           VARCHAR(80),
     agreement_type                  VARCHAR(120),
 
+    -- Upgrade tracking
     is_upgraded                     BOOLEAN,
     upgraded_status                 VARCHAR(120),
     year_signature_upgraded         INTEGER,
     year_enforcement_upgraded       INTEGER,
 
+    -- Trade in goods
     has_trade_goods                 BOOLEAN,
     year_signature_goods            INTEGER,
     year_enforcement_goods          INTEGER,
@@ -75,6 +29,7 @@ CREATE TABLE IF NOT EXISTS ods.fta (
     wto_notification_year_goods     INTEGER,
     wto_consideration_goods         TEXT,
 
+    -- Trade in services
     has_trade_services              BOOLEAN,
     year_signature_services         INTEGER,
     year_enforcement_services       INTEGER,
@@ -83,12 +38,14 @@ CREATE TABLE IF NOT EXISTS ods.fta (
     wto_consideration_services      TEXT,
     liberalization_services         TEXT,
 
+    -- Investment
     has_investment                  BOOLEAN,
     year_signature_investment       INTEGER,
     year_enforcement_investment     INTEGER,
     liberalization_investment       TEXT,
     bit_unctad                      TEXT,
 
+    -- Chapter provisions (wide boolean flags)
     provision_sps_tbt               BOOLEAN,
     provision_anti_dumping          BOOLEAN,
     provision_safeguard             BOOLEAN,
@@ -115,6 +72,7 @@ CREATE TABLE IF NOT EXISTS ods.fta (
     provision_ecommerce_personal_data BOOLEAN,
     provision_ecommerce_data_flows  BOOLEAN,
 
+    -- Reference & lineage
     source_link                     TEXT,
     source_system                   VARCHAR(50) NOT NULL DEFAULT 'APTIAD',
     snapshot_date                   DATE,
@@ -127,10 +85,3 @@ CREATE TABLE IF NOT EXISTS ods.fta (
 
 CREATE INDEX IF NOT EXISTS idx_ods_fta_status ON ods.fta (status);
 CREATE INDEX IF NOT EXISTS idx_ods_fta_member_countries ON ods.fta USING GIN (member_countries);
-
--- Watermark for late arriving
-CREATE TABLE IF NOT EXISTS ods.etl_watermark (
-    source_system    VARCHAR(50) PRIMARY KEY,
-    max_period_year  SMALLINT NOT NULL,
-    last_updated     TIMESTAMPTZ DEFAULT NOW()
-);

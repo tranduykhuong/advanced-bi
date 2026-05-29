@@ -299,7 +299,7 @@ df.to_sql(
 **run_pipeline.py phases (add after extract_csv):**
 
 ```
-Phase 01a: Extract API              ← 01_extract/extract_api.py
+Phase 01a: Extract API              ← 01_extract/extract_csv_files.py
 Phase 01b: Extract TXT Files        ← 01_extract/extract_txt_files.py
 Phase 01c: Extract Trade Map (VPS1) ← 01_extract/extract_trademap.py   [NEW]
 Phase 02:  Transform TXT → Stage    ← 02_transform/transform_text_source.py
