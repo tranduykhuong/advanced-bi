@@ -89,15 +89,15 @@ UPSERT_QUERY = """
         -- Accumulate numerics; revert to absolute value on same-batch reload
         value            = CASE
                                WHEN excluded.batch_id = ods.trade_transaction.batch_id
-                               THEN excluded.value
-                               ELSE COALESCE(ods.trade_transaction.value,    0)
+                               THEN COALESCE(ods.trade_transaction.value,    0)
                                   + COALESCE(excluded.value,                 0)
+                               ELSE excluded.value
                            END,
         quantity         = CASE
                                WHEN excluded.batch_id = ods.trade_transaction.batch_id
-                               THEN excluded.quantity
-                               ELSE COALESCE(ods.trade_transaction.quantity, 0)
+                               THEN COALESCE(ods.trade_transaction.quantity, 0)
                                   + COALESCE(excluded.quantity,              0)
+                               ELSE excluded.quantity
                            END,
 
         -- Non-key descriptive fields: always overwrite with latest value
