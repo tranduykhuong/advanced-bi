@@ -66,7 +66,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         input_file = tmp_dir / "stage_text_transformed.csv"
 
         if not input_file.exists():
-            raise FileNotFoundError(f"Transformed artifact not found: {input_file}")
+            logger.warning("Transformed text file not found at %s", input_file)
+            if managed_batch:
+                complete_batch(engine, batch_id, rows_loaded=0)
+            return 0
 
         _ensure_table(engine)
         rows_loaded = _load_csv_into_stage(input_file)

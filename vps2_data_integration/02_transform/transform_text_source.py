@@ -106,7 +106,12 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         output_file = tmp_dir / "stage_text_transformed.csv"
 
         if not input_file.exists():
-            raise FileNotFoundError(f"Extracted artifact not found: {input_file}")
+            logger.warning(
+                "Extracted text file not found at %s — skipping.", input_file
+            )
+            if managed_batch:
+                complete_batch(engine, batch_id, rows_loaded=0)
+            return 0
 
         rows_written = 0
         with input_file.open("r", encoding="utf-8") as in_fp, output_file.open(

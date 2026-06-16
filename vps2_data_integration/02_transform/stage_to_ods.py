@@ -28,7 +28,7 @@ sys.path.insert(
 from config import load_config
 from common.logging_config import setup_logging, get_logger
 from common.db import get_engine, register_batch, complete_batch
-from common.chunking import DEFAULT_CHUNK_SIZE
+from common.country_resolver import resolve_from_country_name, resolve_from_country_code
 
 logger = get_logger(__name__)
 
@@ -58,31 +58,7 @@ EXPECTED_COLS = [
 
 cc = coco.CountryConverter()
 
-COUNTRY_NAMES = [c.name for c in pycountry.countries]
-
-COUNTRY_ALIASES = {
-    "MYANMA": "Myanmar",
-    "MEHICO": "Mexico",
-    "BRAXIN": "Brazil",
-    "HUNGARI": "Hungary",
-    "ACHENTINA": "Argentina",
-    "PHILIPIN": "Philippines",
-    "NIGIERIA": "Nigeria",
-    "UCRAINA": "Ukraine",
-}
-
-NAME_TO_ALPHA3 = {c.name.upper(): c.alpha_3 for c in pycountry.countries}
-
-ALPHA3_TO_META = {
-    c.alpha_3: {
-        "name": c.name,
-        "continent": cc.convert(names=c.alpha_3, to="continent"),
-        "region": cc.convert(names=c.alpha_3, to="UNregion"),
-    }
-    for c in pycountry.countries
-}
-
-# ==================== RULE-BASED MAPPING (ĐÃ SỬA - TOÀN BỘ 6 CHỮ SỐ) ====================
+# ==================== RULE-BASED MAPPING (TOÀN BỘ 6 CHỮ SỐ) ====================
 
 RULE_BASED_MAP = {
     # Soybeans
@@ -287,44 +263,6 @@ def resolve_from_hs_code(hs):
     product_desc = get_hs_description(hs_str)
 
     return hs_str, chapter_desc, heading_desc, product_desc
-
-
-# ==================== COUNTRY FUNCTIONS (giữ nguyên) ====================
-
-
-def resolve_from_country_name(name: str):
-    country = str(name).strip()
-    country = COUNTRY_ALIASES.get(country.upper(), country)
-    code = NAME_TO_ALPHA3.get(country.upper())
-
-    if code:
-        meta = ALPHA3_TO_META.get(code)
-        return code, meta["region"], meta["continent"], country
-
-    try:
-        iso3 = cc.convert(names=country, to="ISO3")
-        if iso3 and iso3 != "not found":
-            meta = ALPHA3_TO_META.get(iso3)
-            return iso3, meta["region"], meta["continent"], country
-    except:
-        pass
-
-    match = process.extractOne(country, COUNTRY_NAMES, scorer=fuzz.WRatio)
-    if match and match[1] > 70:
-        best = match[0]
-        code = NAME_TO_ALPHA3.get(best.upper())
-        meta = ALPHA3_TO_META.get(code)
-        return code, meta["region"], meta["continent"], country
-
-    return None, None, None, country
-
-
-def resolve_from_country_code(code):
-    code_str = str(code).strip().upper()
-    meta = ALPHA3_TO_META.get(code_str)
-    if meta:
-        return meta["region"], meta["continent"]
-    return None, None
 
 
 def calculate_quarter(month):
