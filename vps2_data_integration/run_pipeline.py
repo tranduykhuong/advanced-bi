@@ -48,6 +48,10 @@ PHASES = [
     # ETL DB → Stage
     ("01_extract.extract_trademap", "Phase 01: Extract Trade Map (VPS1)"),
     ("03_load.load_stage_db", "Phase 03: Load stage_db"),
+    # ETL Exchange Rate (Frankfurter) → Stage
+    ("01_extract.extract_exchange_rate", "Phase 01: Extract Exchange Rate (Frankfurter)"),
+    ("02_transform.transform_exchange_rate_source", "Phase 02: Transform Exchange Rate → Stage"),
+    ("03_load.load_stage_exchange_rate", "Phase 03: Load stage_exchange_rate"),
     # ETL Stage → ODS (FTA)
     ("01_extract.extract_stage_aptiad", "Phase 01: Extract stage_aptiad"),
     ("02_transform.fta_stage_to_ods", "Phase 02: FTA Stage → ODS (Transform)"),
@@ -57,6 +61,9 @@ PHASES = [
     ("02_transform.stage_to_ods", "Phase 02: Stage → ODS (Transform + BR)"),
     # ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving Handler"),
     ("03_load.load_stage_to_ods", "Phase 03: Load into ODS (UPSERT)"),
+    # ETL Stage → ODS (Exchange Rate)
+    ("02_transform.exchange_rate_stage_to_ods", "Phase 02: Exchange Rate Stage → ODS (Transform)"),
+    ("03_load.load_exchange_rate_to_ods", "Phase 03: Load ods.exchange_rate (UPSERT)"),
     # ETL ODS → NDS
     ("02_transform.ods_to_nds", "Phase 02: ODS → NDS (3NF)"),
     # ETL NDS → DDS
@@ -64,10 +71,10 @@ PHASES = [
 ]
 
 PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
-    "extract-stage": PHASES[:11],
-    "stage-ods": PHASES[11:17],
-    "ods-nds": PHASES[17:18],
-    "nds-dds": PHASES[18:19],
+    "extract-stage": PHASES[:14],
+    "stage-ods": PHASES[14:23],
+    "ods-nds": PHASES[23:24],
+    "nds-dds": PHASES[24:25],
 }
 
 PHASE_GROUP_LABELS: dict[str, str] = {
@@ -113,9 +120,12 @@ def _select_phases(phase: str) -> list[tuple[str, str]]:
     return PHASE_GROUPS[phase]
 
 
-def _run_phase(module_path: str, batch_id: str) -> int:
+def _run_phase(module_path: str, batch_id: str | None) -> int:
     env = os.environ.copy()
-    env["ETL_BATCH_ID"] = batch_id
+    if batch_id:
+        env["ETL_BATCH_ID"] = batch_id
+    else:
+        env.pop("ETL_BATCH_ID", None)
     return subprocess.run(
         [sys.executable, "-m", "common.run_module", module_path],
         env=env,
@@ -164,11 +174,18 @@ def main() -> int:
     batch_id_str = str(pipeline_batch_id)
     group_label = PHASE_GROUP_LABELS.get(args.phase, "Full pipeline")
 
+    # ods-nds without --batch-id → full sync (no ETL_BATCH_ID passed to subprocess)
+    ods_nds_full_sync = (
+        args.phase == "ods-nds" and requested_batch_id is None
+    )
+    phase_batch_id: str | None = None if ods_nds_full_sync else batch_id_str
+
     logger.info(
-        "Pipeline started  batch_id=%s  phase=%s  group=%s",
+        "Pipeline started  batch_id=%s  phase=%s  group=%s%s",
         pipeline_batch_id,
         args.phase,
         group_label,
+        "  (ods-nds: full sync)" if ods_nds_full_sync else "",
     )
     print(f"ETL_BATCH_ID={batch_id_str}", flush=True)
 
@@ -176,7 +193,14 @@ def main() -> int:
 
     for module_path, label in phases:
         logger.info("--- %s ---", label)
-        exit_code = _run_phase(module_path, batch_id_str)
+        # Only ods_to_nds uses full-sync when phase_batch_id is None; other phases
+        # always receive the pipeline batch_id.
+        subprocess_batch_id = (
+            phase_batch_id
+            if module_path == "02_transform.ods_to_nds"
+            else batch_id_str
+        )
+        exit_code = _run_phase(module_path, subprocess_batch_id)
         if exit_code == 2:
             logger.warning("    %s  SKIPPED (not yet implemented)", label)
         elif exit_code != 0:

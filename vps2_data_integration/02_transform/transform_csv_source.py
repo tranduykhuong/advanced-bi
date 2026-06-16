@@ -64,7 +64,12 @@ def run(batch_id: uuid.UUID | None = None) -> pd.DataFrame:
         output_file = tmp_dir / "trade_transformed.csv"
 
         if not input_file.exists():
-            raise FileNotFoundError(f"Extracted artifact not found: {input_file}")
+            logger.warning(
+                "Extracted CSV file not found at %s — skipping.", input_file
+            )
+            if managed_batch:
+                complete_batch(engine, batch_id, rows_loaded=0)
+            return pd.DataFrame()
 
         df = pd.read_csv(input_file, dtype=str)
 

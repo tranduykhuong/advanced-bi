@@ -1,24 +1,25 @@
--- =============================================================================
--- 01_ddl_nds_trade.sql — Normalized Data Store (NDS) Layer DDL
--- Schema: nds
---
--- Design rules for this layer:
---   • Fully normalized to Third Normal Form (3NF).
---   • Enforces referential integrity via FOREIGN KEY constraints.
---   • Natural business keys are the primary identifiers.
---   • This is the Inmon integration point before Kimball denormalization.
---
--- Source: ods.trade_transaction, ods.fta
--- Provision flags remain in ods.fta — query ODS directly when needed.
--- =============================================================================
+-- Migration 003: full NDS schema (3NF rebuild)
+-- Drops legacy skeleton tables (dim_country, dim_hs_product, fact_trade_flow)
+-- and creates the normalized nds layer aligned with ods.trade_transaction / ods.fta.
 
-CREATE SCHEMA IF NOT EXISTS nds;
+-- Drop legacy skeleton tables (order respects FK dependencies if any were added later)
+DROP TABLE IF EXISTS nds.fact_trade_flow;
+DROP TABLE IF EXISTS nds.dim_hs_product;
+DROP TABLE IF EXISTS nds.dim_country;
+
+-- Drop new tables in reverse dependency order (idempotent re-run)
+DROP TABLE IF EXISTS nds.fta_utilization;
+DROP TABLE IF EXISTS nds.trade_transaction;
+DROP TABLE IF EXISTS nds.fta_member;
+DROP TABLE IF EXISTS nds.fta;
+DROP TABLE IF EXISTS nds.time;
+DROP TABLE IF EXISTS nds.product;
+DROP TABLE IF EXISTS nds.country;
 
 -- ---------------------------------------------------------------------------
 -- nds.country
--- Master country/territory reference (3NF, authoritative ISO-3 codes).
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS nds.country (
+CREATE TABLE nds.country (
     country_code    VARCHAR(3)   NOT NULL,
     country_name    VARCHAR(200),
     continent       VARCHAR(100),
@@ -32,14 +33,13 @@ CREATE TABLE IF NOT EXISTS nds.country (
 
 -- ---------------------------------------------------------------------------
 -- nds.product
--- Master HS commodity code reference.
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS nds.product (
+CREATE TABLE nds.product (
     hs_code           VARCHAR(8)   NOT NULL,
     hs_version        VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
     hs_chapter        CHAR(2),
-    category_heading  TEXT,
-    product_name      TEXT,
+    category_heading  VARCHAR(100),
+    product_name      VARCHAR(500),
 
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -49,9 +49,8 @@ CREATE TABLE IF NOT EXISTS nds.product (
 
 -- ---------------------------------------------------------------------------
 -- nds.time
--- Month-level time dimension (trade data grain).
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS nds.time (
+CREATE TABLE nds.time (
     time_id    UUID         NOT NULL DEFAULT gen_random_uuid(),
     year       SMALLINT     NOT NULL,
     quarter    SMALLINT,
@@ -66,10 +65,8 @@ CREATE TABLE IF NOT EXISTS nds.time (
 
 -- ---------------------------------------------------------------------------
 -- nds.fta
--- Free Trade Agreement reference (core attributes only).
--- Provision detail stays in ods.fta — join via fta_id when needed.
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS nds.fta (
+CREATE TABLE nds.fta (
     fta_id            UUID         NOT NULL,
     aptiad_no         INTEGER      NOT NULL,
     fta_name          VARCHAR(300),
@@ -89,9 +86,8 @@ CREATE TABLE IF NOT EXISTS nds.fta (
 
 -- ---------------------------------------------------------------------------
 -- nds.fta_member
--- Bridge table — normalizes ods.fta.member_countries TEXT[].
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS nds.fta_member (
+CREATE TABLE nds.fta_member (
     fta_id        UUID         NOT NULL,
     country_code  VARCHAR(3)   NOT NULL,
 
@@ -106,9 +102,8 @@ CREATE TABLE IF NOT EXISTS nds.fta_member (
 
 -- ---------------------------------------------------------------------------
 -- nds.trade_transaction
--- Normalized trade fact — FK references to country, product, time.
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS nds.trade_transaction (
+CREATE TABLE nds.trade_transaction (
     trade_id          UUID           NOT NULL DEFAULT gen_random_uuid(),
     time_id           UUID           NOT NULL,
     hs_code           VARCHAR(8)     NOT NULL,
@@ -120,7 +115,6 @@ CREATE TABLE IF NOT EXISTS nds.trade_transaction (
     unit              VARCHAR(20),
     record_source     VARCHAR(20),
 
-    -- Lineage
     source_system     VARCHAR(50)    NOT NULL,
     batch_id          UUID           NOT NULL,
     is_late_arriving  BOOLEAN        NOT NULL DEFAULT FALSE,
@@ -145,9 +139,8 @@ CREATE TABLE IF NOT EXISTS nds.trade_transaction (
 
 -- ---------------------------------------------------------------------------
 -- nds.fta_utilization
--- Junction table — normalizes ods.trade_transaction.fta_keys TEXT[].
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS nds.fta_utilization (
+CREATE TABLE nds.fta_utilization (
     trade_id   UUID         NOT NULL,
     fta_id     UUID         NOT NULL,
 
@@ -163,29 +156,29 @@ CREATE TABLE IF NOT EXISTS nds.fta_utilization (
 -- ---------------------------------------------------------------------------
 -- Indexes
 -- ---------------------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS ix_nds_country_name_trgm
+CREATE INDEX ix_nds_country_name_trgm
     ON nds.country USING gin (country_name gin_trgm_ops);
 
-CREATE INDEX IF NOT EXISTS ix_nds_product_hs_chapter
+CREATE INDEX ix_nds_product_hs_chapter
     ON nds.product (hs_chapter);
 
-CREATE INDEX IF NOT EXISTS ix_nds_product_hs_version
+CREATE INDEX ix_nds_product_hs_version
     ON nds.product (hs_version);
 
-CREATE INDEX IF NOT EXISTS ix_nds_trade_transaction_time_flow
+CREATE INDEX ix_nds_trade_transaction_time_flow
     ON nds.trade_transaction (time_id, flow_type);
 
-CREATE INDEX IF NOT EXISTS ix_nds_trade_transaction_partner
+CREATE INDEX ix_nds_trade_transaction_partner
     ON nds.trade_transaction (partner_code);
 
-CREATE INDEX IF NOT EXISTS ix_nds_trade_transaction_hs_code
+CREATE INDEX ix_nds_trade_transaction_hs_code
     ON nds.trade_transaction (hs_code);
 
-CREATE INDEX IF NOT EXISTS ix_nds_trade_transaction_ods_id
+CREATE INDEX ix_nds_trade_transaction_ods_id
     ON nds.trade_transaction (ods_id);
 
-CREATE INDEX IF NOT EXISTS ix_nds_fta_status
+CREATE INDEX ix_nds_fta_status
     ON nds.fta (status);
 
-CREATE INDEX IF NOT EXISTS ix_nds_fta_member_country
+CREATE INDEX ix_nds_fta_member_country
     ON nds.fta_member (country_code);

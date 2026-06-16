@@ -14,8 +14,10 @@ from dotenv import load_dotenv
 
 DOCKER_VPS1_HOST = "postgres_vps1"
 DOCKER_DW_HOST = "postgres_dw"
+DOCKER_RAW_DATA_PATH = "/raw_data"
 
-_repo_root = Path(__file__).resolve().parents[1]
+_app_root = Path(__file__).resolve().parent
+_repo_root = _app_root.parent
 _env_file = _repo_root / ".env"
 if _env_file.exists():
     load_dotenv(_env_file)
@@ -71,6 +73,8 @@ class AppConfig:
     raw_data_path: str
     app_env: str
     log_level: str
+    frankfurter_base_url: str
+    frankfurter_from_date: str
 
 
 def _host_resolves(hostname: str) -> bool:
@@ -123,6 +127,32 @@ def _resolve_dw_db_endpoint() -> tuple[str, int]:
     return configured_host, internal_port
 
 
+def _resolve_raw_data_path(configured: str) -> str:
+    """Resolve raw data directory for local dev, Docker, and misconfigured paths."""
+    raw = Path(configured)
+    candidates: list[Path] = [
+        raw,
+        _app_root / raw,
+        _repo_root / raw,
+        _repo_root / "vps1_data_sources" / "raw_data",
+        Path(DOCKER_RAW_DATA_PATH),
+    ]
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if resolved.is_dir():
+            return str(resolved)
+
+    return configured
+
+
 def load_config() -> AppConfig:
     """Build AppConfig from environment. Raises ValueError for missing required vars."""
     password = os.environ.get("DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD")
@@ -166,7 +196,11 @@ def load_config() -> AppConfig:
             password=vps1_password,
         ),
         vps1_api_url=os.getenv("VPS1_API_URL", "http://mock_api:8000"),
-        raw_data_path=os.getenv("RAW_DATA_PATH", "/raw_data"),
+        raw_data_path=_resolve_raw_data_path(
+            os.getenv("RAW_DATA_PATH", DOCKER_RAW_DATA_PATH)
+        ),
         app_env=os.getenv("APP_ENV", "development"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
+        frankfurter_base_url=os.getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev"),
+        frankfurter_from_date=os.getenv("FRANKFURTER_FROM_DATE", "1999-01-04"),
     )
