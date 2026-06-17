@@ -15,6 +15,35 @@ from common.db import get_engine, register_batch, complete_batch
 
 logger = get_logger(__name__)
 
+_TRADEMAP_BASE_FILTER = """
+    product_code IS NOT NULL
+    AND UPPER(TRIM(product_code)) != 'TOTAL'
+    AND (
+        TRIM(importer_name) ILIKE 'Viet Nam'
+        OR TRIM(importer_name) ILIKE 'Vietnam'
+        OR TRIM(exporter_name) ILIKE 'Viet Nam'
+        OR TRIM(exporter_name) ILIKE 'Vietnam'
+    )
+"""
+
+
+def _log_trademap_counts(conn, min_value_usd: float) -> None:
+    """Log how many TRADE_MAP rows pass/fail the value filter."""
+    count_sql = text(f"""
+        SELECT
+            COUNT(*) FILTER (WHERE COALESCE(value_usd_k, 0) * 1000 > :min_val) AS kept,
+            COUNT(*) FILTER (WHERE NOT (COALESCE(value_usd_k, 0) * 1000 > :min_val)) AS dropped
+        FROM stage.stage_db
+        WHERE {_TRADEMAP_BASE_FILTER}
+    """)
+    row = conn.execute(count_sql, {"min_val": min_value_usd}).fetchone()
+    logger.info(
+        "TRADE_MAP rows: kept=%s, dropped=%s (TRADEMAP_MIN_VALUE_USD=%.2f)",
+        row.kept,
+        row.dropped,
+        min_value_usd,
+    )
+
 
 def run(batch_id: uuid.UUID | None = None) -> int:
     cfg = load_config()
@@ -27,6 +56,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         batch_id = register_batch(engine, "extract_stage")
 
     try:
+        min_val = cfg.trademap_min_value_usd
+
         query = """
         SELECT 
             CAST(SUBSTRING(period::text, 1, 4) AS INTEGER) as year,
@@ -97,7 +128,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
               OR TRIM(importer_name) ILIKE 'Vietnam'
               OR TRIM(exporter_name) ILIKE 'Viet Nam'
               OR TRIM(exporter_name) ILIKE 'Vietnam'
-          );
+          )
+          AND COALESCE(value_usd_k, 0) * 1000 > :trademap_min_value_usd
         """
 
         tmp_dir = Path(__file__).resolve().parents[1] / "tmp"
@@ -106,7 +138,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         output_file = tmp_dir / "stage_extracted.csv"
 
         with engine.connect() as conn:
-            df = pd.read_sql_query(text(query), conn)
+            _log_trademap_counts(conn, min_val)
+            df = pd.read_sql_query(
+                text(query), conn, params={"trademap_min_value_usd": min_val}
+            )
         logger.info("Extracted %s rows (UNION ALL)", len(df))
 
         df.to_csv(output_file, index=False)

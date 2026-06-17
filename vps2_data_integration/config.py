@@ -75,6 +75,7 @@ class AppConfig:
     log_level: str
     frankfurter_base_url: str
     frankfurter_from_date: str
+    trademap_min_value_usd: float
 
 
 def _host_resolves(hostname: str) -> bool:
@@ -203,4 +204,5 @@ def load_config() -> AppConfig:
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         frankfurter_base_url=os.getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev"),
         frankfurter_from_date=os.getenv("FRANKFURTER_FROM_DATE", "1999-01-04"),
+        trademap_min_value_usd=float(os.getenv("TRADEMAP_MIN_VALUE_USD", "0")),
     )
