@@ -1,30 +1,21 @@
 -- =============================================================================
--- 01_ddl_dds_star.sql — Dimensional Data Store (DDS) Star Schema DDL
--- Schema: dds
+-- Migration 009: DDS Full Schema
+-- Applies the complete Dimensional Data Store (DDS) star schema to the database.
 --
--- Design rules for this layer (Kimball):
---   • Surrogate keys (integer sequences) on all dimension tables.
---   • SCD Type 2 on dds.dim_country  (valid_from / valid_to / is_current / version).
---   • SCD Type 1 on dds.dim_product, dds.dim_fta (overwrite + version counter).
---   • dds.dim_time is a conformed monthly calendar dimension.
---   • dds.dim_currency is a conformed currency dimension (seed: VND, USD).
---   • dds.dim_fta_country is a bridge table replacing the flat text partner_countries.
---   • dds.fact_trade grain: time × product × partner × flow_type × record_source.
---   • dds.fact_exchange_rate grain: rate_date × base_currency × quote_currency.
+-- Execution order respects FK dependencies:
+--   dim_time → dim_currency → dim_country → dim_product → dim_fta
+--   → dim_fta_country (bridge)
+--   → fact_exchange_rate → fact_trade_transaction
 --
--- Source:  nds schema (nds.trade_transaction, nds.country, nds.product,
---                       nds.time, nds.fta, nds.fta_member, nds.fta_utilization,
---                       nds.exchange_rate, nds.currency)
--- ETL:     vps2_data_integration/03_load/nds_to_dds_scd.py
+-- All statements use IF NOT EXISTS / ON CONFLICT so this script is idempotent.
+-- Safe to re-run on an existing database.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- dds.dim_time  — conformed monthly calendar dimension
--- Surrogate key convention: year * 100 + month  (e.g. 202301 = Jan 2023)
+-- 1. dds.dim_time
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_time (
-    time_key    INTEGER      NOT NULL,   -- surrogate key: YYYYMM
-
+    time_key    INTEGER      NOT NULL,
     year        SMALLINT     NOT NULL,
     quarter     SMALLINT     NOT NULL    CHECK (quarter BETWEEN 1 AND 4),
     month       SMALLINT     NOT NULL    CHECK (month   BETWEEN 1 AND 12),
@@ -37,21 +28,18 @@ COMMENT ON TABLE  dds.dim_time IS 'Conformed monthly time dimension. time_key = 
 COMMENT ON COLUMN dds.dim_time.time_key IS 'Surrogate key: year*100 + month (e.g. 202301).';
 
 -- ---------------------------------------------------------------------------
--- dds.dim_currency  — conformed currency dimension
--- Seeded with VND and USD; used as FK by fact_exchange_rate.
+-- 2. dds.dim_currency
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_currency (
     currency_key    SERIAL       NOT NULL,
     currency_code   CHAR(3)      NOT NULL,
     currency_name   VARCHAR(100),
-
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT pk_dds_dim_currency     PRIMARY KEY (currency_key),
+    CONSTRAINT pk_dds_dim_currency      PRIMARY KEY (currency_key),
     CONSTRAINT uq_dds_dim_currency_code UNIQUE (currency_code)
 );
 
--- Seed VND and USD (idempotent)
 INSERT INTO dds.dim_currency (currency_code, currency_name)
 VALUES
     ('VND', 'Vietnamese Dong'),
@@ -61,40 +49,28 @@ ON CONFLICT (currency_code) DO NOTHING;
 COMMENT ON TABLE dds.dim_currency IS 'Conformed currency dimension. Seeded with VND and USD.';
 
 -- ---------------------------------------------------------------------------
--- dds.dim_country  — SCD Type 2
--- Tracks historical changes to country attributes (name, region, continent).
--- A partial unique index enforces exactly one is_current = TRUE per country_code.
+-- 3. dds.dim_country  (SCD Type 2)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_country (
-    country_key     BIGSERIAL    NOT NULL,   -- surrogate key
-
-    -- Business key
-    country_code    CHAR(3)      NOT NULL,   -- ISO-3166-1 alpha-3
-
-    -- Descriptive attributes
+    country_key     BIGSERIAL    NOT NULL,
+    country_code    CHAR(3)      NOT NULL,
     country_name    TEXT,
     continent       TEXT,
     region          TEXT,
-
-    -- SCD2 tracking columns
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
     valid_from      DATE         NOT NULL DEFAULT CURRENT_DATE,
     valid_to        DATE         NOT NULL DEFAULT '9999-12-31',
-
-    -- Lineage
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT pk_dds_dim_country PRIMARY KEY (country_key)
 );
 
--- Partial unique index: only one active row per country_code
 CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_country_current
     ON dds.dim_country (country_code)
     WHERE is_current = TRUE;
 
--- Index for SCD2 expire lookups
 CREATE INDEX IF NOT EXISTS ix_dds_dim_country_code
     ON dds.dim_country (country_code);
 
@@ -104,33 +80,24 @@ COMMENT ON COLUMN dds.dim_country.valid_from IS 'Date this version became active
 COMMENT ON COLUMN dds.dim_country.valid_to   IS '9999-12-31 for the current active version.';
 
 -- ---------------------------------------------------------------------------
--- dds.dim_product  — SCD Type 1
--- Overwrites product attributes in-place; version counter tracks changes.
+-- 4. dds.dim_product  (SCD Type 1)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_product (
-    product_key     BIGSERIAL    NOT NULL,   -- surrogate key
-
-    -- Business key
-    hs_code         VARCHAR(8)   NOT NULL,   -- HS commodity code
+    product_key     BIGSERIAL    NOT NULL,
+    hs_code         VARCHAR(8)   NOT NULL,
     hs_version      VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
-
-    -- Descriptive attributes
-    hs_chapter      CHAR(2),                 -- 2-digit chapter
-    chapter_name    TEXT,                    -- chapter description
-    heading_name    TEXT,                    -- 4-digit heading description
-    product_name    TEXT,                    -- full product name
-
-    -- SCD1 tracking columns
+    hs_chapter      CHAR(2),
+    chapter_name    TEXT,
+    heading_name    TEXT,
+    product_name    TEXT,
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
-
-    -- Lineage
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT pk_dds_dim_product     PRIMARY KEY (product_key),
-    CONSTRAINT uq_dds_dim_product_bk  UNIQUE (hs_code, hs_version)
+    CONSTRAINT pk_dds_dim_product    PRIMARY KEY (product_key),
+    CONSTRAINT uq_dds_dim_product_bk UNIQUE (hs_code, hs_version)
 );
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_chapter
@@ -140,28 +107,19 @@ COMMENT ON TABLE  dds.dim_product IS 'SCD Type 1 product dimension keyed on (hs_
 COMMENT ON COLUMN dds.dim_product.version IS 'Increments each time any attribute is overwritten (SCD1).';
 
 -- ---------------------------------------------------------------------------
--- dds.dim_fta  — SCD Type 1
--- Free Trade Agreement reference. Attributes overwritten in-place.
+-- 5. dds.dim_fta  (SCD Type 1)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_fta (
-    fta_key         SERIAL       NOT NULL,   -- surrogate key
-
-    -- Business key (links back to nds.fta.fta_id)
+    fta_key         SERIAL       NOT NULL,
     fta_bk          UUID         NOT NULL,
-
-    -- Descriptive attributes
     fta_name        TEXT,
-    fta_code        VARCHAR(50),             -- APTIAD number / short code
-    agreement_type  TEXT,                    -- e.g. 'Bilateral', 'Multilateral'
-    scope           TEXT,                    -- e.g. 'Goods', 'Services', 'Both'
+    fta_code        VARCHAR(50),
+    agreement_type  TEXT,
+    scope           TEXT,
     enforcement_year INTEGER,
-    status          TEXT,                    -- e.g. 'In Force', 'Signed'
-
-    -- SCD1 tracking columns
+    status          TEXT,
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
-
-    -- Lineage
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -180,19 +138,16 @@ COMMENT ON TABLE  dds.dim_fta IS 'SCD Type 1 Free Trade Agreement dimension.';
 COMMENT ON COLUMN dds.dim_fta.fta_bk IS 'Business key — references nds.fta.fta_id.';
 
 -- ---------------------------------------------------------------------------
--- dds.dim_fta_country  — Bridge table
--- Replaces the flat text partner_countries column with a proper FK bridge.
--- Each FTA can have many member countries; each country can belong to many FTAs.
+-- 6. dds.dim_fta_country  (Bridge)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_fta_country (
     fta_key         INTEGER      NOT NULL,
     country_key     BIGINT       NOT NULL,
-
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT pk_dds_dim_fta_country PRIMARY KEY (fta_key, country_key),
     CONSTRAINT fk_dds_fta_country_fta
-        FOREIGN KEY (fta_key)     REFERENCES dds.dim_fta (fta_key),
+        FOREIGN KEY (fta_key)     REFERENCES dds.dim_fta     (fta_key),
     CONSTRAINT fk_dds_fta_country_country
         FOREIGN KEY (country_key) REFERENCES dds.dim_country (country_key)
 );
@@ -205,30 +160,19 @@ COMMENT ON TABLE dds.dim_fta_country IS
     'Replaces the flat text partner_countries field in the raw image schema.';
 
 -- ---------------------------------------------------------------------------
--- dds.fact_exchange_rate  — daily exchange rate fact
--- Grain: one row per (rate_date, base_currency, quote_currency).
--- Linked to dim_time by (year, month) of the rate_date.
--- Stores both the raw rate and the derived vnd_per_usd for convenience.
+-- 7. dds.fact_exchange_rate
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.fact_exchange_rate (
-    rate_key            BIGSERIAL    NOT NULL,   -- surrogate key
-
-    -- Dimension FKs
-    time_key            INTEGER      NOT NULL,   -- FK → dds.dim_time (YYYYMM)
-    base_currency_key   INTEGER      NOT NULL,   -- FK → dds.dim_currency
-    quote_currency_key  INTEGER      NOT NULL,   -- FK → dds.dim_currency
-
-    -- Grain
-    rate_date           DATE         NOT NULL,   -- exact calendar date of the rate
-
-    -- Measures
-    rate_raw            NUMERIC(18,10) NOT NULL, -- raw rate from source (e.g. VND per 1 USD)
-    exchange_rate       NUMERIC(18,6)  NOT NULL, -- vnd_per_usd = 1 / rate_raw
-
-    -- Lineage
-    source_system       VARCHAR(50)  NOT NULL DEFAULT 'FRANKFURTER',
+    rate_key            BIGSERIAL      NOT NULL,
+    time_key            INTEGER        NOT NULL,
+    base_currency_key   INTEGER        NOT NULL,
+    quote_currency_key  INTEGER        NOT NULL,
+    rate_date           DATE           NOT NULL,
+    rate_raw            NUMERIC(18,10) NOT NULL,
+    exchange_rate       NUMERIC(18,6)  NOT NULL,
+    source_system       VARCHAR(50)    NOT NULL DEFAULT 'FRANKFURTER',
     batch_id            UUID,
-    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_at          TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
 
     CONSTRAINT pk_dds_fact_exchange_rate PRIMARY KEY (rate_key),
     CONSTRAINT uq_dds_fact_exchange_rate_grain
@@ -250,39 +194,24 @@ CREATE INDEX IF NOT EXISTS ix_dds_fact_exrate_rate_date
 COMMENT ON TABLE  dds.fact_exchange_rate IS
     'Daily exchange rate fact. Grain: rate_date × base_currency × quote_currency. '
     'exchange_rate = vnd_per_usd; rate_raw is the original Frankfurter value.';
-COMMENT ON COLUMN dds.fact_exchange_rate.rate_raw       IS 'Raw rate from Frankfurter API (e.g. base=VND → USD value of 1 VND).';
-COMMENT ON COLUMN dds.fact_exchange_rate.exchange_rate  IS 'Derived vnd_per_usd = 1 / rate_raw. Used for trade value conversion.';
+COMMENT ON COLUMN dds.fact_exchange_rate.rate_raw      IS 'Raw rate from Frankfurter API.';
+COMMENT ON COLUMN dds.fact_exchange_rate.exchange_rate IS 'vnd_per_usd = 1 / rate_raw. Used for trade value conversion.';
 
 -- ---------------------------------------------------------------------------
--- dds.fact_trade_transaction  — central star fact table
--- Grain: time × product × partner_country × flow_type × record_source.
--- value_vnd is pre-computed at load time using the month-end exchange rate.
--- fta_keys stores an array of dim_fta surrogate keys for FTA utilization.
+-- 8. dds.fact_trade_transaction
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.fact_trade_transaction (
-    trade_key       BIGSERIAL    NOT NULL,   -- surrogate key
-
-    -- Dimension FKs
-    time_key        INTEGER      NOT NULL,   -- FK → dds.dim_time
-    product_key     BIGINT       NOT NULL,   -- FK → dds.dim_product
-    partner_key     BIGINT       NOT NULL,   -- FK → dds.dim_country (is_current at load time)
-
-    -- FTA utilization (denormalized array of dim_fta surrogate keys)
-    fta_keys        INTEGER[],              -- NULL if no FTA utilization recorded
-
-    -- Degenerate dimensions / grain attributes
-    flow_type       BOOLEAN      NOT NULL,  -- TRUE = Export, FALSE = Import
-    record_source   VARCHAR(20),            -- e.g. 'TRADEMAP', 'COMTRADE', 'NSO'
-
-    -- Measures (USD)
-    value           NUMERIC(18,6),          -- trade value in USD
+    trade_key       BIGSERIAL    NOT NULL,
+    time_key        INTEGER      NOT NULL,
+    product_key     BIGINT       NOT NULL,
+    partner_key     BIGINT       NOT NULL,
+    fta_keys        INTEGER[],
+    flow_type       BOOLEAN      NOT NULL,
+    record_source   VARCHAR(20),
+    value           NUMERIC(18,6),
     quantity        NUMERIC(18,6),
     unit            VARCHAR(20),
-
-    -- Pre-computed VND measure (value * month-end vnd_per_usd)
     value_vnd       NUMERIC(18,2),
-
-    -- Lineage
     source_system   VARCHAR(50)  NOT NULL,
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -317,6 +246,6 @@ CREATE INDEX IF NOT EXISTS ix_dds_fact_trade_fta_keys
 COMMENT ON TABLE  dds.fact_trade_transaction IS
     'Central star fact. Grain: time × product × partner × flow_type × record_source. '
     'value_vnd pre-computed at ETL load time using month-end VND/USD rate.';
-COMMENT ON COLUMN dds.fact_trade_transaction.flow_type  IS 'TRUE = Export, FALSE = Import.';
-COMMENT ON COLUMN dds.fact_trade_transaction.fta_keys   IS 'Array of dim_fta.fta_key for FTAs utilised in this trade.';
-COMMENT ON COLUMN dds.fact_trade_transaction.value_vnd  IS 'Pre-computed: value (USD) × month-end vnd_per_usd.';
+COMMENT ON COLUMN dds.fact_trade_transaction.flow_type IS 'TRUE = Export, FALSE = Import.';
+COMMENT ON COLUMN dds.fact_trade_transaction.fta_keys  IS 'Array of dim_fta.fta_key for FTAs utilised in this trade.';
+COMMENT ON COLUMN dds.fact_trade_transaction.value_vnd IS 'Pre-computed: value (USD) × month-end vnd_per_usd.';

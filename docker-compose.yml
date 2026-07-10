@@ -34,8 +34,11 @@ services:
       # Schema init — alphabetical / numeric sort guarantees correct order
       - ./vps3_data_warehouse/00_init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
       - ./vps3_data_warehouse/01_stage/01_ddl_stage_trade.sql:/docker-entrypoint-initdb.d/01_ddl_stage_trade.sql:ro
+      - ./vps3_data_warehouse/01_stage/03_ddl_stage_exchange_rate.sql:/docker-entrypoint-initdb.d/01_stage_03_ddl_stage_exchange_rate.sql:ro
       - ./vps3_data_warehouse/02_ods/01_ddl_ods_trade.sql:/docker-entrypoint-initdb.d/02_ddl_ods_trade.sql:ro
+      - ./vps3_data_warehouse/02_ods/02_ddl_ods_exchange_rate.sql:/docker-entrypoint-initdb.d/02_ods_02_ddl_ods_exchange_rate.sql:ro
       - ./vps3_data_warehouse/03_nds/01_ddl_nds_trade.sql:/docker-entrypoint-initdb.d/03_ddl_nds_trade.sql:ro
+      - ./vps3_data_warehouse/03_nds/02_ddl_nds_exchange_rate.sql:/docker-entrypoint-initdb.d/03_nds_02_ddl_nds_exchange_rate.sql:ro
       - ./vps3_data_warehouse/04_dds/01_ddl_dds_star.sql:/docker-entrypoint-initdb.d/04_ddl_dds_star.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -132,5 +135,6 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./vps1_data_sources/raw_data:/raw_data:ro
+      - ./vps2_data_integration:/app
     networks:
       - bi_dw_net
