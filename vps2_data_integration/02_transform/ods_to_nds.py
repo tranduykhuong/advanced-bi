@@ -199,10 +199,15 @@ def _sql_delete_fta_util(full_sync: bool) -> text:
 def _sql_insert_fta_util(full_sync: bool) -> text:
     b = _batch_and(full_sync, alias="tt")
     return text(f"""
+        -- BR09: FTA utilization only counts when the partner AND Vietnam (VNM) are
+        -- both members of the same FTA — not just any FTA the partner happens to belong to.
         INSERT INTO nds.fta_utilization (trade_id, fta_id)
         SELECT tt.trade_id, fm.fta_id
         FROM nds.trade_transaction tt
         JOIN nds.fta_member fm ON fm.country_code = tt.partner_code
+        JOIN nds.fta_member fm_vn
+            ON fm_vn.fta_id = fm.fta_id
+           AND fm_vn.country_code = 'VNM'
         WHERE {b}TRUE
         ON CONFLICT DO NOTHING
     """)
