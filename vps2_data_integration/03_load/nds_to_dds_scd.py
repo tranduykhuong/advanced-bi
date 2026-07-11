@@ -207,7 +207,7 @@ _SQL_UPSERT_DIM_PRODUCT = text("""
         p.hs_code,
         p.hs_version,
         p.hs_chapter,
-        p.category_heading  AS chapter_name,
+        p.category_chapter  AS chapter_name,
         p.category_heading  AS heading_name,
         p.product_name,
         TRUE,

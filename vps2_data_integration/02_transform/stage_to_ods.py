@@ -149,7 +149,10 @@ def load_hs_map():
         _HS_MAP = {}
 
         for _, row in df_hs.iterrows():
-            hscode = str(row["hscode"]).strip().zfill(6)[:6]
+            raw_hscode = str(row["hscode"]).strip()
+            if len(raw_hscode) % 2 != 0:
+                raw_hscode = "0" + raw_hscode
+            hscode = raw_hscode
             description = str(row["description"]).strip()
             level = int(row["level"]) if pd.notna(row["level"]) else 0
 
@@ -241,13 +244,13 @@ def infer_hs_codes_batch(product_names):
 
 def get_hs_description(hs_code: str):
     hs_map = load_hs_map()
-    code = str(hs_code).strip().zfill(6)[:6]
+    code = str(hs_code).strip()
 
     if code in hs_map:
         return hs_map[code]["description"]
 
-    for i in range(4, 0, -2):
-        short_code = code[:i].ljust(6, "0")
+    for i in range(len(code) - 2, 0, -2):
+        short_code = code[:i]
         if short_code in hs_map:
             return hs_map[short_code]["description"]
     return ""
@@ -257,7 +260,12 @@ def resolve_from_hs_code(hs):
     if pd.isna(hs) or not str(hs).strip():
         return "000000", "", "", ""
 
-    hs_str = str(hs).strip().zfill(6)[:6]
+    # HS codes are hierarchical left-to-right (chapter=2 digits, heading=4, subheading=6).
+    raw = str(hs).strip()
+    if len(raw) % 2 != 0:
+        raw = "0" + raw
+    hs_str = raw
+
     chapter_desc = get_hs_description(hs_str[:2])
     heading_desc = get_hs_description(hs_str[:4])
     product_desc = get_hs_description(hs_str)
