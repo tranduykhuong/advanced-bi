@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Vietnam_Trade_Analysis_Cube — Mondrian schema for Pentaho Schema Workbench
+  Source: dds (Dimensional Data Store), Galaxy Schema.
+  Matches cube design in G6_FinalProject_Report_v2.0.docx, Section VI.
+
+  Requires views dds.dim_country_current / dds.dim_product_current
+  (SCD2/SCD1 "current row only" filters) — already created on the DB.
+-->
+<Schema name="TradeAnalytics">
+
+  <Cube name="Vietnam_Trade_Analysis_Cube">
+    <Table schema="dds" name="fact_trade_transaction"/>
+
+    <!-- ==================== dim_time ==================== -->
+    <Dimension name="dim_time" foreignKey="time_key" type="TimeDimension">
+      <Hierarchy hasAll="true" allMemberName="All Time" primaryKey="time_key">
+        <Table schema="dds" name="dim_time"/>
+        <Level name="year"    column="year"    type="Numeric" uniqueMembers="true"  levelType="TimeYears"/>
+        <Level name="quarter" column="quarter" type="Numeric" uniqueMembers="false" levelType="TimeQuarters"/>
+        <Level name="month"   column="month"   type="Numeric" uniqueMembers="false" levelType="TimeMonths"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- ==================== dim_product ==================== -->
+    <!-- Hierarchy per report VI.1: chapter_name -> heading_name -> product_name -->
+    <Dimension name="dim_product" foreignKey="product_key">
+      <Hierarchy hasAll="true" allMemberName="All Products" primaryKey="product_key">
+        <Table schema="dds" name="dim_product_current"/>
+        <Level name="chapter_name" column="hs_chapter"   nameColumn="chapter_name" type="String" uniqueMembers="true"/>
+        <Level name="heading_name" column="heading_name" type="String" uniqueMembers="false"/>
+        <Level name="product_name" column="hs_code"       nameColumn="product_name" type="String" uniqueMembers="true"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- ==================== dim_country (partner) ==================== -->
+    <Dimension name="dim_country" foreignKey="partner_key">
+      <Hierarchy hasAll="true" allMemberName="All Countries" primaryKey="country_key">
+        <Table schema="dds" name="dim_country_current"/>
+        <Level name="continent"    column="continent"    type="String" uniqueMembers="true"/>
+        <Level name="region"       column="region"       type="String" uniqueMembers="false"/>
+        <Level name="country_name" column="country_name" nameColumn="country_name" ordinalColumn="country_code"
+               type="String" uniqueMembers="true"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- ==================== Flow Type (degenerate dimension) ==================== -->
+    <Dimension name="Flow Type" foreignKey="flow_type">
+      <Hierarchy hasAll="true" allMemberName="All Flows" primaryKey="flow_type">
+        <Level name="Flow" column="flow_type" type="Boolean" uniqueMembers="true"
+               caption="Export/Import"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- ==================== Measures ==================== -->
+    <Measure name="TradeValue_USD" column="value"    aggregator="sum" formatString="#,###"/>
+    <Measure name="TradeValue_VND" column="value_vnd" aggregator="sum" formatString="#,###"/>
+    <Measure name="TotalQuantity"  column="quantity" aggregator="sum" formatString="#,###"/>
+    <Measure name="Transaction Count" column="trade_key" aggregator="count" formatString="#,###"/>
+
+    <!-- ==================== Calculated Measures ==================== -->
+    <!-- TradeSurplus = Export (flow_type=True) - Import (flow_type=False), in VND -->
+    <CalculatedMember name="TradeSurplus" dimension="Measures">
+      <Formula>
+        (([Flow Type].[Flow].[true], [Measures].[TradeValue_VND])
+        - ([Flow Type].[Flow].[false], [Measures].[TradeValue_VND]))
+      </Formula>
+      <CalculatedMemberProperty name="FORMAT_STRING" value="#,###"/>
+    </CalculatedMember>
+
+    <!-- AsymmetryRatio = |TradeSurplus| / TradeValue_VND -->
+    <CalculatedMember name="AsymmetryRatio" dimension="Measures">
+      <Formula>
+        Abs([Measures].[TradeSurplus]) / [Measures].[TradeValue_VND]
+      </Formula>
+      <CalculatedMemberProperty name="FORMAT_STRING" value="0.00%"/>
+    </CalculatedMember>
+
+    <!-- GrowthRateMoM = (this month - prior month) / prior month, along dim_time.month -->
+    <CalculatedMember name="GrowthRateMoM" dimension="Measures">
+      <Formula>
+        ([Measures].[TradeValue_VND] - ([dim_time].[month].CurrentMember.PrevMember, [Measures].[TradeValue_VND]))
+        / ([dim_time].[month].CurrentMember.PrevMember, [Measures].[TradeValue_VND])
+      </Formula>
+      <CalculatedMemberProperty name="FORMAT_STRING" value="0.00%"/>
+    </CalculatedMember>
+
+    <!-- SharePercent = share of current member's value within its parent level total -->
+    <CalculatedMember name="SharePercent" dimension="Measures">
+      <Formula>
+        [Measures].[TradeValue_VND] / ([dim_product].[chapter_name].CurrentMember.Parent, [Measures].[TradeValue_VND]) * 100
+      </Formula>
+      <CalculatedMemberProperty name="FORMAT_STRING" value="0.00"/>
+    </CalculatedMember>
+
+  </Cube>
+
+  <!-- ==================== FTA Utilization Cube ==================== -->
+  <!-- fact_trade_transaction.fta_keys is an INTEGER[] (many-to-many with dim_fta),
+       which Mondrian cannot join directly, and Mondrian Virtual Cubes proved too
+       fragile (ignoreUnrelatedDimensions did not eliminate the cross-cube divide-
+       by-zero on this PSW/Mondrian build) for computing UtilizationRate live.
+       dds.fta_utilization_summary pre-aggregates per FTA in SQL instead:
+       fta_trade_count, total_trade_count (VN-wide), and utilization_rate (%). -->
+  <Cube name="FTA_Utilization_Cube">
+    <Table schema="dds" name="fta_utilization_summary"/>
+
+    <!-- dim_fta: flat dimension per report VI.1 (hierarchy "-") -->
+    <Dimension name="dim_fta" foreignKey="fta_key">
+      <Hierarchy hasAll="true" allMemberName="All FTAs" primaryKey="fta_key">
+        <Table schema="dds" name="dim_fta_current"/>
+        <Level name="fta_name" column="fta_key" nameColumn="fta_name" type="Numeric" uniqueMembers="true"/>
+      </Hierarchy>
+    </Dimension>
+
+    <Measure name="FTA Trade Count" column="fta_trade_count" aggregator="sum" formatString="#,###"/>
+    <Measure name="UtilizationRate" column="utilization_rate" aggregator="avg" formatString="0.00"/>
+  </Cube>
+
+</Schema>
