@@ -38,6 +38,7 @@ CREATE TABLE nds.product (
     hs_code           VARCHAR(8)   NOT NULL,
     hs_version        VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
     hs_chapter        CHAR(2),
+    category_chapter  VARCHAR(100),
     category_heading  VARCHAR(100),
     product_name      VARCHAR(500),
 
