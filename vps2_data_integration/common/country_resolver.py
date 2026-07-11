@@ -53,14 +53,14 @@ def resolve_from_country_name(name: str) -> tuple[str | None, str | None, str | 
     code = NAME_TO_ALPHA3.get(country.upper())
     if code:
         meta = ALPHA3_TO_META[code]
-        return code, meta["region"], meta["continent"], country
+        return code, meta["region"], meta["continent"], meta["name"]
 
     try:
         iso3 = cc.convert(names=country, to="ISO3")
         if iso3 and iso3 != "not found":
             meta = ALPHA3_TO_META.get(iso3)
             if meta:
-                return iso3, meta["region"], meta["continent"], country
+                return iso3, meta["region"], meta["continent"], meta["name"]
     except Exception:
         pass
 
@@ -70,7 +70,7 @@ def resolve_from_country_name(name: str) -> tuple[str | None, str | None, str | 
         code = NAME_TO_ALPHA3.get(best.upper())
         meta = ALPHA3_TO_META.get(code)
         if code and meta:
-            return code, meta["region"], meta["continent"], country
+            return code, meta["region"], meta["continent"], meta["name"]
 
     return None, None, None, country
 

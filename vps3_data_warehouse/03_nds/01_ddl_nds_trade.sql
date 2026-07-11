@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS nds.country (
 CREATE TABLE IF NOT EXISTS nds.product (
     hs_code           VARCHAR(8)   NOT NULL,
     hs_version        VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
-    hs_chapter        CHAR(2),
+    category_chapter  TEXT,
     category_heading  TEXT,
     product_name      TEXT,
 
@@ -165,9 +165,6 @@ CREATE TABLE IF NOT EXISTS nds.fta_utilization (
 -- ---------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS ix_nds_country_name_trgm
     ON nds.country USING gin (country_name gin_trgm_ops);
-
-CREATE INDEX IF NOT EXISTS ix_nds_product_hs_chapter
-    ON nds.product (hs_chapter);
 
 CREATE INDEX IF NOT EXISTS ix_nds_product_hs_version
     ON nds.product (hs_version);
