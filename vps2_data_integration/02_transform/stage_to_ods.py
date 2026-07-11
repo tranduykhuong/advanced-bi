@@ -257,7 +257,16 @@ def resolve_from_hs_code(hs):
     if pd.isna(hs) or not str(hs).strip():
         return "000000", "", "", ""
 
-    hs_str = str(hs).strip().zfill(6)[:6]
+    # HS codes are hierarchical left-to-right (chapter=2 digits, heading=4, subheading=6).
+    # Sources like UN Comtrade report commodities at mixed granularity, so a short code
+    # (e.g. "0101") is a higher-level aggregate and must be right-padded to preserve its
+    # chapter/heading meaning ("010100"), never left-padded/zfilled ("000101") which turns
+    # it into an unrelated, non-existent subheading.
+    raw = str(hs).strip()
+    if len(raw) % 2 != 0:
+        raw = "0" + raw
+    hs_str = raw.ljust(6, "0")[:6]
+
     chapter_desc = get_hs_description(hs_str[:2])
     heading_desc = get_hs_description(hs_str[:4])
     product_desc = get_hs_description(hs_str)
