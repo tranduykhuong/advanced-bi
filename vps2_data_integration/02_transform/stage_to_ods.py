@@ -313,8 +313,9 @@ def apply_business_rules(df: pd.DataFrame) -> pd.DataFrame:
         resolved_code = df.loc[mask_code, "partner_code"].apply(
             lambda x: pd.Series(resolve_from_country_code(x))
         )
-        df.loc[mask_code, "partner_region"] = resolved_code[0].values
-        df.loc[mask_code, "partner_continent"] = resolved_code[1].values
+        df.loc[mask_code, "partner_name"] = resolved_code[0].values
+        df.loc[mask_code, "partner_region"] = resolved_code[1].values
+        df.loc[mask_code, "partner_continent"] = resolved_code[2].values
 
     mask_name = ~mask_code
     if mask_name.any():

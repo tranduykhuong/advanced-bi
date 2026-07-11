@@ -55,7 +55,8 @@ SELECT
 
     -- Product
     p.hs_code,
-    p.hs_chapter,
+    LEFT(p.hs_code, 2) AS hs_chapter,
+    LEFT(p.hs_code, 4) AS hs_heading,
     p.category_heading,
     p.product_name,
 

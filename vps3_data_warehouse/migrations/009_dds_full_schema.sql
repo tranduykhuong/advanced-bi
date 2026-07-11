@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
     hs_code         VARCHAR(8)   NOT NULL,
     hs_version      VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
     hs_chapter      CHAR(2),
+    hs_heading      CHAR(4),
     chapter_name    TEXT,
     heading_name    TEXT,
     product_name    TEXT,
@@ -102,6 +103,9 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_chapter
     ON dds.dim_product (hs_chapter);
+
+CREATE INDEX IF NOT EXISTS ix_dds_dim_product_heading
+    ON dds.dim_product (hs_heading);
 
 COMMENT ON TABLE  dds.dim_product IS 'SCD Type 1 product dimension keyed on (hs_code, hs_version).';
 COMMENT ON COLUMN dds.dim_product.version IS 'Increments each time any attribute is overwritten (SCD1).';

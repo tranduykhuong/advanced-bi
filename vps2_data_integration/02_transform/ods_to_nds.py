@@ -78,11 +78,10 @@ def _sql_upsert_countries_trade(full_sync: bool) -> text:
 def _sql_upsert_products(full_sync: bool) -> text:
     b = _batch_and(full_sync)
     return text(f"""
-        INSERT INTO nds.product (hs_code, hs_version, hs_chapter, category_chapter, category_heading, product_name)
+        INSERT INTO nds.product (hs_code, hs_version, category_chapter, category_heading, product_name)
         SELECT DISTINCT ON (hs_code)
             hs_code,
             'HS2017'         AS hs_version,
-            LEFT(hs_code, 2) AS hs_chapter,
             category_chapter,
             category_heading,
             product_name
@@ -91,7 +90,6 @@ def _sql_upsert_products(full_sync: bool) -> text:
           AND hs_code <> ''
         ORDER BY hs_code, product_name NULLS LAST
         ON CONFLICT (hs_code, hs_version) DO UPDATE SET
-            hs_chapter       = COALESCE(EXCLUDED.hs_chapter,       nds.product.hs_chapter),
             category_chapter = COALESCE(EXCLUDED.category_chapter, nds.product.category_chapter),
             category_heading = COALESCE(EXCLUDED.category_heading, nds.product.category_heading),
             product_name     = COALESCE(EXCLUDED.product_name,     nds.product.product_name),

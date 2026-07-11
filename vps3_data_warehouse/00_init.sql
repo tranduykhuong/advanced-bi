@@ -4,6 +4,8 @@
 -- This script MUST run first (numeric prefix guarantees ordering).
 -- =============================================================================
 
+CREATE SCHEMA IF NOT EXISTS public;
+
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";   -- UUID primary key generation
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";     -- Trigram similarity (fuzzy match support)

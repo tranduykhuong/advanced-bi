@@ -201,12 +201,13 @@ def _load_dim_country(engine, batch_id: uuid.UUID | None) -> int:
 # ---------------------------------------------------------------------------
 _SQL_UPSERT_DIM_PRODUCT = text("""
     INSERT INTO dds.dim_product
-        (hs_code, hs_version, hs_chapter, chapter_name, heading_name,
+        (hs_code, hs_version, hs_chapter, hs_heading, chapter_name, heading_name,
          product_name, is_current, version, batch_id)
     SELECT
         p.hs_code,
         p.hs_version,
-        p.hs_chapter,
+        LEFT(p.hs_code, 2)  AS hs_chapter,
+        LEFT(p.hs_code, 4)  AS hs_heading,
         p.category_chapter  AS chapter_name,
         p.category_heading  AS heading_name,
         p.product_name,
@@ -216,6 +217,7 @@ _SQL_UPSERT_DIM_PRODUCT = text("""
     FROM nds.product p
     ON CONFLICT (hs_code, hs_version) DO UPDATE SET
         hs_chapter   = EXCLUDED.hs_chapter,
+        hs_heading   = EXCLUDED.hs_heading,
         chapter_name = EXCLUDED.chapter_name,
         heading_name = EXCLUDED.heading_name,
         product_name = EXCLUDED.product_name,

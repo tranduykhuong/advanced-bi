@@ -37,7 +37,6 @@ CREATE TABLE nds.country (
 CREATE TABLE nds.product (
     hs_code           VARCHAR(8)   NOT NULL,
     hs_version        VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
-    hs_chapter        CHAR(2),
     category_chapter  VARCHAR(100),
     category_heading  VARCHAR(100),
     product_name      VARCHAR(500),
@@ -159,9 +158,6 @@ CREATE TABLE nds.fta_utilization (
 -- ---------------------------------------------------------------------------
 CREATE INDEX ix_nds_country_name_trgm
     ON nds.country USING gin (country_name gin_trgm_ops);
-
-CREATE INDEX ix_nds_product_hs_chapter
-    ON nds.product (hs_chapter);
 
 CREATE INDEX ix_nds_product_hs_version
     ON nds.product (hs_version);
