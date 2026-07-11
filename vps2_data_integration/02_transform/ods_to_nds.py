@@ -60,9 +60,9 @@ def _sql_upsert_countries_trade(full_sync: bool) -> text:
         INSERT INTO nds.country (country_code, country_name, continent, region)
         SELECT DISTINCT
             partner_code,
-            MAX(partner_name)      AS country_name,
-            MAX(partner_continent) AS continent,
-            MAX(partner_region)    AS region
+            MODE() WITHIN GROUP (ORDER BY partner_name)      AS country_name,
+            MODE() WITHIN GROUP (ORDER BY partner_continent) AS continent,
+            MODE() WITHIN GROUP (ORDER BY partner_region)    AS region
         FROM ods.trade_transaction
         WHERE {b}partner_code IS NOT NULL
           AND partner_code <> ''
