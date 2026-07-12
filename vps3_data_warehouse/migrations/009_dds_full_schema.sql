@@ -104,6 +104,8 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_chapter
     ON dds.dim_product (hs_chapter);
 
+ALTER TABLE dds.dim_product ADD COLUMN IF NOT EXISTS hs_heading CHAR(4);
+
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_heading
     ON dds.dim_product (hs_heading);
 
