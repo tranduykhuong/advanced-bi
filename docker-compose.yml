@@ -14,6 +14,7 @@ networks:
 volumes:
   postgres_data:
   postgres_vps1_data:
+  saiku_data:
 
 services:
   # -------------------------------------------------------------------------
@@ -136,5 +137,33 @@ services:
     volumes:
       - ./vps1_data_sources/raw_data:/raw_data:ro
       - ./vps2_data_integration:/app
+    networks:
+      - bi_dw_net
+
+  # -------------------------------------------------------------------------
+  # Saiku Analytics (Spicule 2026 relaunch) — MDX/OLAP viewer for the Mondrian
+  # cube (Vietnam_Trade_Analysis_Cube). Free, self-hostable, no license.
+  # The image bakes in the PostgreSQL driver + cube schema + datasource, so it
+  # comes up connected to postgres_dw/dds with the cube queryable by MDX.
+  # -------------------------------------------------------------------------
+  saiku:
+    build:
+      context: .
+      dockerfile: saiku/Dockerfile
+    container_name: saiku
+    restart: unless-stopped
+    environment:
+      # Allow the built-in admin/admin login (evaluation / self-hosted use).
+      SAIKU_ALLOW_DEFAULT_ADMIN: "true"
+      # Put the PostgreSQL JDBC driver on the JVM boot classpath so Mondrian
+      # can load it (java -jar ignores -cp; the fat jar has no lib dir).
+      JAVA_OPTS: "-Xbootclasspath/a:/drivers/postgresql.jar"
+    ports:
+      - "${SAIKU_PORT:-8080}:8080"
+    depends_on:
+      postgres_dw:
+        condition: service_healthy
+    volumes:
+      - saiku_data:/app/saiku-home
     networks:
       - bi_dw_net

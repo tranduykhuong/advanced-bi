@@ -50,3 +50,6 @@ Thumbs.db
 known_hosts
 
 tmp/
+
+# Saiku JDBC driver — downloaded at image build time
+saiku/*.jar
