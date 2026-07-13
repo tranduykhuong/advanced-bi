@@ -27,11 +27,41 @@ CREATE TABLE IF NOT EXISTS public.etl_batch_log (
                                   CHECK (status IN ('RUNNING','SUCCESS','FAILED')),
     rows_extracted   INTEGER,
     rows_loaded      INTEGER,
+    rows_rejected    INTEGER      NOT NULL DEFAULT 0,
+    rows_upserted    INTEGER      NOT NULL DEFAULT 0,
     error_message    TEXT,
     CONSTRAINT pk_etl_batch_log PRIMARY KEY (batch_id)
 );
 
+-- Reject records: rows dropped or flagged during Stage→ODS, ODS→NDS or NDS→DDS
+-- for audit and data-lineage traceability.
+CREATE TABLE IF NOT EXISTS public.reject_records (
+    reject_id        BIGSERIAL    NOT NULL,
+    batch_id         UUID         NOT NULL,
+    process_type     SMALLINT     NOT NULL
+                                  CHECK (process_type IN (1, 2, 3)),
+                                  -- 1 = Stage -> ODS, 2 = ODS -> NDS, 3 = NDS -> DDS
+    source_table     VARCHAR(100) NOT NULL,
+    reject_reason    TEXT         NOT NULL,
+    row_data         JSONB,
+    rejected_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT pk_reject_records PRIMARY KEY (reject_id),
+    CONSTRAINT fk_reject_records_batch
+        FOREIGN KEY (batch_id) REFERENCES public.etl_batch_log (batch_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_reject_records_batch_id
+    ON public.reject_records (batch_id);
+
+CREATE INDEX IF NOT EXISTS ix_reject_records_process_type
+    ON public.reject_records (process_type);
+
+COMMENT ON TABLE public.reject_records IS
+    'Rows rejected/excluded during ETL (Stage->ODS=1, ODS->NDS=2, NDS->DDS=3). '
+    'Used for audit and data traceability alongside etl_batch_log.';
+
 COMMENT ON SCHEMA stage IS 'Stage Area — fast VARCHAR landing zone; truncated each ETL run';
 COMMENT ON SCHEMA ods  IS 'Operational Data Store — typed, integrated, Inmon approach';
 COMMENT ON SCHEMA nds  IS 'Normalized Data Store — 3NF master data and trade facts';
-COMMENT ON SCHEMA dds  IS 'Dimensional Data Store — Kimball star schema (SCD1 & SCD2)';
+COMMENT ON SCHEMA dds  IS 'Dimensional Data Store — Kimball star schema (SCD2 on dim_country, dim_product, dim_fta)';

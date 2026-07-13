@@ -1,4 +1,4 @@
-"""NDS → DDS ETL  (SCD Type 1 & Type 2).
+"""NDS → DDS ETL  (SCD Type 2 on all dimensions).
 
 Loads data from the Normalized Data Store (NDS) into the Dimensional Data Store
 (DDS) star schema in strict FK-dependency order:
@@ -6,9 +6,9 @@ Loads data from the Normalized Data Store (NDS) into the Dimensional Data Store
   Step 1:  dds.dim_time          — monthly calendar dimension
   Step 2:  dds.dim_currency      — seed VND / USD (idempotent)
   Step 3:  dds.dim_country       — SCD Type 2 (expire + insert new version)
-  Step 4:  dds.dim_product       — SCD Type 1 (overwrite + version counter)
-  Step 5:  dds.dim_fta           — SCD Type 1 (overwrite + version counter)
-  Step 6:  dds.dim_fta_country   — bridge: FTA × member country (delete + re-insert)
+  Step 4:  dds.dim_product       — SCD Type 2 (expire + insert new version)
+  Step 5:  dds.dim_fta           — SCD Type 2 (expire + insert new version)
+  Step 6:  dds.dim_fta_country   — bridge: FTA × member country (delete + re-insert, current versions only)
   Step 7:  dds.fact_exchange_rate — daily rate fact (upsert)
   Step 8:  dds.fact_trade_transaction — central star fact (upsert + pre-compute VND)
 
@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
 from common.logging_config import setup_logging, get_logger
-from common.db import get_engine, register_batch, complete_batch
+from common.db import get_engine, register_batch, complete_batch, log_reject_records
 
 logger = get_logger(__name__)
 
@@ -104,14 +104,14 @@ def _load_dim_currency(engine) -> int:
 # Logic:
 #   1. Find NDS countries not yet in DDS → INSERT (version=1, is_current=TRUE)
 #   2. Find NDS countries whose attrs differ from current DDS row →
-#        a. UPDATE old row: is_current=FALSE, valid_to=TODAY
+#        a. UPDATE old row: is_current=FALSE
 #        b. INSERT new row: version=old+1, is_current=TRUE
 #   3. Unchanged rows → no-op
 # ---------------------------------------------------------------------------
 _SQL_INSERT_NEW_COUNTRIES = text("""
     INSERT INTO dds.dim_country
         (country_code, country_name, continent, region,
-         is_current, version, valid_from, valid_to, batch_id)
+         is_current, version, batch_id)
     SELECT
         n.country_code,
         n.country_name,
@@ -119,8 +119,6 @@ _SQL_INSERT_NEW_COUNTRIES = text("""
         n.region,
         TRUE,
         1,
-        CURRENT_DATE,
-        '9999-12-31',
         :batch_id
     FROM nds.country n
     WHERE NOT EXISTS (
@@ -150,18 +148,30 @@ _SQL_FIND_CHANGED_COUNTRIES = text("""
 
 _SQL_EXPIRE_COUNTRY = text("""
     UPDATE dds.dim_country
-    SET is_current = FALSE,
-        valid_to   = CURRENT_DATE - INTERVAL '1 day'
+    SET is_current = FALSE
     WHERE country_key = :country_key
 """)
 
 _SQL_INSERT_COUNTRY_VERSION = text("""
     INSERT INTO dds.dim_country
         (country_code, country_name, continent, region,
-         is_current, version, valid_from, valid_to, batch_id)
+         is_current, version, batch_id)
     VALUES
         (:country_code, :country_name, :continent, :region,
-         TRUE, :version, CURRENT_DATE, '9999-12-31', :batch_id)
+         TRUE, :version, :batch_id)
+    RETURNING country_key
+""")
+
+# Repoint fact rows already loaded against the now-expired surrogate key to
+# the new version's key — otherwise the Step 8 upsert (which always joins
+# dim_country ON is_current = TRUE) inserts a *second* fact row under the new
+# key instead of updating the existing one, because partner_key is part of
+# the fact's grain/conflict target. Without this, every SCD2 change would
+# silently duplicate every fact row for that business key.
+_SQL_REPOINT_FACT_PARTNER = text("""
+    UPDATE dds.fact_trade_transaction
+    SET partner_key = :new_key
+    WHERE partner_key = :old_key
 """)
 
 
@@ -181,13 +191,16 @@ def _load_dim_country(engine, batch_id: uuid.UUID | None) -> int:
     for row in changed:
         with engine.begin() as conn:
             conn.execute(_SQL_EXPIRE_COUNTRY, {"country_key": row.country_key})
-            conn.execute(_SQL_INSERT_COUNTRY_VERSION, {
+            new_key = conn.execute(_SQL_INSERT_COUNTRY_VERSION, {
                 "country_code": row.country_code,
                 "country_name": row.country_name,
                 "continent":    row.continent,
                 "region":       row.region,
                 "version":      row.version + 1,
                 "batch_id":     batch_id_str,
+            }).scalar_one()
+            conn.execute(_SQL_REPOINT_FACT_PARTNER, {
+                "old_key": row.country_key, "new_key": new_key,
             })
         updated += 1
 
@@ -196,10 +209,15 @@ def _load_dim_country(engine, batch_id: uuid.UUID | None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Step 4 — dds.dim_product  (SCD Type 1)
-# Overwrite attributes; increment version when anything changed.
+# Step 4 — dds.dim_product  (SCD Type 2)
+# Logic (mirrors dim_country):
+#   1. Find NDS products not yet in DDS → INSERT (version=1, is_current=TRUE)
+#   2. Find NDS products whose attrs differ from current DDS row →
+#        a. UPDATE old row: is_current=FALSE
+#        b. INSERT new row: version=old+1, is_current=TRUE
+#   3. Unchanged rows → no-op
 # ---------------------------------------------------------------------------
-_SQL_UPSERT_DIM_PRODUCT = text("""
+_SQL_INSERT_NEW_PRODUCTS = text("""
     INSERT INTO dds.dim_product
         (hs_code, hs_version, hs_chapter, hs_heading, chapter_name, heading_name,
          product_name, is_current, version, batch_id)
@@ -215,36 +233,95 @@ _SQL_UPSERT_DIM_PRODUCT = text("""
         1,
         :batch_id
     FROM nds.product p
-    ON CONFLICT (hs_code, hs_version) DO UPDATE SET
-        hs_chapter   = EXCLUDED.hs_chapter,
-        hs_heading   = EXCLUDED.hs_heading,
-        chapter_name = EXCLUDED.chapter_name,
-        heading_name = EXCLUDED.heading_name,
-        product_name = EXCLUDED.product_name,
-        version      = CASE
-            WHEN dds.dim_product.chapter_name IS DISTINCT FROM EXCLUDED.chapter_name
-              OR dds.dim_product.heading_name IS DISTINCT FROM EXCLUDED.heading_name
-              OR dds.dim_product.product_name IS DISTINCT FROM EXCLUDED.product_name
-            THEN dds.dim_product.version + 1
-            ELSE dds.dim_product.version
-        END,
-        updated_at   = NOW(),
-        batch_id     = EXCLUDED.batch_id
+    WHERE NOT EXISTS (
+        SELECT 1 FROM dds.dim_product d
+        WHERE d.hs_code = p.hs_code AND d.hs_version = p.hs_version
+    )
+    ON CONFLICT DO NOTHING
+""")
+
+_SQL_FIND_CHANGED_PRODUCTS = text("""
+    SELECT
+        d.product_key,
+        d.version,
+        p.hs_code,
+        p.hs_version,
+        p.category_chapter AS chapter_name,
+        p.category_heading AS heading_name,
+        p.product_name
+    FROM nds.product p
+    JOIN dds.dim_product d
+        ON d.hs_code    = p.hs_code
+       AND d.hs_version = p.hs_version
+       AND d.is_current = TRUE
+    WHERE
+        COALESCE(p.category_chapter, '') <> COALESCE(d.chapter_name, '')
+     OR COALESCE(p.category_heading, '') <> COALESCE(d.heading_name, '')
+     OR COALESCE(p.product_name,     '') <> COALESCE(d.product_name, '')
+""")
+
+_SQL_EXPIRE_PRODUCT = text("""
+    UPDATE dds.dim_product
+    SET is_current = FALSE
+    WHERE product_key = :product_key
+""")
+
+_SQL_INSERT_PRODUCT_VERSION = text("""
+    INSERT INTO dds.dim_product
+        (hs_code, hs_version, hs_chapter, hs_heading, chapter_name, heading_name,
+         product_name, is_current, version, batch_id)
+    VALUES
+        (:hs_code, :hs_version, LEFT(:hs_code, 2), LEFT(:hs_code, 4),
+         :chapter_name, :heading_name, :product_name,
+         TRUE, :version, :batch_id)
+    RETURNING product_key
+""")
+
+# See _SQL_REPOINT_FACT_PARTNER — same reasoning, for product_key.
+_SQL_REPOINT_FACT_PRODUCT = text("""
+    UPDATE dds.fact_trade_transaction
+    SET product_key = :new_key
+    WHERE product_key = :old_key
 """)
 
 
 def _load_dim_product(engine, batch_id: uuid.UUID | None) -> int:
     batch_id_str = str(batch_id) if batch_id else str(uuid.uuid4())
+
     with engine.begin() as conn:
-        r = conn.execute(_SQL_UPSERT_DIM_PRODUCT, {"batch_id": batch_id_str})
-    logger.info("Step 4:  dim_product — upserted %d rows", r.rowcount)
-    return r.rowcount
+        r_new = conn.execute(_SQL_INSERT_NEW_PRODUCTS, {"batch_id": batch_id_str})
+    logger.info("Step 4:  dim_product — inserted %d new products", r_new.rowcount)
+
+    with engine.connect() as conn:
+        changed = conn.execute(_SQL_FIND_CHANGED_PRODUCTS).fetchall()
+
+    updated = 0
+    for row in changed:
+        with engine.begin() as conn:
+            conn.execute(_SQL_EXPIRE_PRODUCT, {"product_key": row.product_key})
+            new_key = conn.execute(_SQL_INSERT_PRODUCT_VERSION, {
+                "hs_code":      row.hs_code,
+                "hs_version":   row.hs_version,
+                "chapter_name": row.chapter_name,
+                "heading_name": row.heading_name,
+                "product_name": row.product_name,
+                "version":      row.version + 1,
+                "batch_id":     batch_id_str,
+            }).scalar_one()
+            conn.execute(_SQL_REPOINT_FACT_PRODUCT, {
+                "old_key": row.product_key, "new_key": new_key,
+            })
+        updated += 1
+
+    logger.info("Step 4:  dim_product — SCD2 expired+versioned %d products", updated)
+    return r_new.rowcount + updated
 
 
 # ---------------------------------------------------------------------------
-# Step 5 — dds.dim_fta  (SCD Type 1)
+# Step 5 — dds.dim_fta  (SCD Type 2)
+# Logic (mirrors dim_country / dim_product).
 # ---------------------------------------------------------------------------
-_SQL_UPSERT_DIM_FTA = text("""
+_SQL_INSERT_NEW_FTA = text("""
     INSERT INTO dds.dim_fta
         (fta_bk, fta_name, fta_code, agreement_type, scope,
          enforcement_year, status, is_current, version, batch_id)
@@ -260,33 +337,93 @@ _SQL_UPSERT_DIM_FTA = text("""
         1,
         :batch_id
     FROM nds.fta f
-    ON CONFLICT (fta_bk) DO UPDATE SET
-        fta_name         = EXCLUDED.fta_name,
-        fta_code         = EXCLUDED.fta_code,
-        agreement_type   = EXCLUDED.agreement_type,
-        scope            = EXCLUDED.scope,
-        enforcement_year = EXCLUDED.enforcement_year,
-        status           = EXCLUDED.status,
-        version          = CASE
-            WHEN dds.dim_fta.fta_name         IS DISTINCT FROM EXCLUDED.fta_name
-              OR dds.dim_fta.agreement_type    IS DISTINCT FROM EXCLUDED.agreement_type
-              OR dds.dim_fta.scope             IS DISTINCT FROM EXCLUDED.scope
-              OR dds.dim_fta.enforcement_year  IS DISTINCT FROM EXCLUDED.enforcement_year
-              OR dds.dim_fta.status            IS DISTINCT FROM EXCLUDED.status
-            THEN dds.dim_fta.version + 1
-            ELSE dds.dim_fta.version
-        END,
-        updated_at = NOW(),
-        batch_id   = EXCLUDED.batch_id
+    WHERE NOT EXISTS (
+        SELECT 1 FROM dds.dim_fta d WHERE d.fta_bk = f.fta_id
+    )
+    ON CONFLICT DO NOTHING
+""")
+
+_SQL_FIND_CHANGED_FTA = text("""
+    SELECT
+        d.fta_key,
+        d.version,
+        f.fta_id            AS fta_bk,
+        f.fta_name,
+        f.aptiad_no::TEXT    AS fta_code,
+        f.agreement_type,
+        f.scope,
+        f.enforcement_year,
+        f.status
+    FROM nds.fta f
+    JOIN dds.dim_fta d
+        ON d.fta_bk     = f.fta_id
+       AND d.is_current = TRUE
+    WHERE
+        COALESCE(f.fta_name, '')                    <> COALESCE(d.fta_name, '')
+     OR COALESCE(f.aptiad_no::TEXT, '')              <> COALESCE(d.fta_code, '')
+     OR COALESCE(f.agreement_type, '')               <> COALESCE(d.agreement_type, '')
+     OR COALESCE(f.scope, '')                        <> COALESCE(d.scope, '')
+     OR COALESCE(f.enforcement_year, -1)             <> COALESCE(d.enforcement_year, -1)
+     OR COALESCE(f.status, '')                       <> COALESCE(d.status, '')
+""")
+
+_SQL_EXPIRE_FTA = text("""
+    UPDATE dds.dim_fta
+    SET is_current = FALSE
+    WHERE fta_key = :fta_key
+""")
+
+_SQL_INSERT_FTA_VERSION = text("""
+    INSERT INTO dds.dim_fta
+        (fta_bk, fta_name, fta_code, agreement_type, scope,
+         enforcement_year, status, is_current, version, batch_id)
+    VALUES
+        (:fta_bk, :fta_name, :fta_code, :agreement_type, :scope,
+         :enforcement_year, :status, TRUE, :version, :batch_id)
+    RETURNING fta_key
+""")
+
+# See _SQL_REPOINT_FACT_PARTNER — fta_keys is an INTEGER[] (a trade can
+# utilise multiple FTAs), so the old key is replaced in place within the array.
+_SQL_REPOINT_FACT_FTA = text("""
+    UPDATE dds.fact_trade_transaction
+    SET fta_keys = array_replace(fta_keys, :old_key, :new_key)
+    WHERE :old_key = ANY(fta_keys)
 """)
 
 
 def _load_dim_fta(engine, batch_id: uuid.UUID | None) -> int:
     batch_id_str = str(batch_id) if batch_id else str(uuid.uuid4())
+
     with engine.begin() as conn:
-        r = conn.execute(_SQL_UPSERT_DIM_FTA, {"batch_id": batch_id_str})
-    logger.info("Step 5:  dim_fta — upserted %d rows", r.rowcount)
-    return r.rowcount
+        r_new = conn.execute(_SQL_INSERT_NEW_FTA, {"batch_id": batch_id_str})
+    logger.info("Step 5:  dim_fta — inserted %d new FTAs", r_new.rowcount)
+
+    with engine.connect() as conn:
+        changed = conn.execute(_SQL_FIND_CHANGED_FTA).fetchall()
+
+    updated = 0
+    for row in changed:
+        with engine.begin() as conn:
+            conn.execute(_SQL_EXPIRE_FTA, {"fta_key": row.fta_key})
+            new_key = conn.execute(_SQL_INSERT_FTA_VERSION, {
+                "fta_bk":           row.fta_bk,
+                "fta_name":         row.fta_name,
+                "fta_code":         row.fta_code,
+                "agreement_type":   row.agreement_type,
+                "scope":            row.scope,
+                "enforcement_year": row.enforcement_year,
+                "status":           row.status,
+                "version":          row.version + 1,
+                "batch_id":         batch_id_str,
+            }).scalar_one()
+            conn.execute(_SQL_REPOINT_FACT_FTA, {
+                "old_key": row.fta_key, "new_key": new_key,
+            })
+        updated += 1
+
+    logger.info("Step 5:  dim_fta — SCD2 expired+versioned %d FTAs", updated)
+    return r_new.rowcount + updated
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +436,7 @@ _SQL_FETCH_FTA_MEMBERS = text("""
         dc.country_key
     FROM nds.fta_member fm
     JOIN dds.dim_fta     df ON df.fta_bk      = fm.fta_id
+                             AND df.is_current = TRUE
     JOIN dds.dim_country dc ON dc.country_code = fm.country_code
                              AND dc.is_current  = TRUE
 """)
@@ -392,13 +530,13 @@ _SQL_UPSERT_FACT_TRADE = text("""
           AND fer.quote_currency_key = (SELECT currency_key FROM dds.dim_currency WHERE currency_code = 'USD')
         GROUP BY fer.time_key
     ),
-    -- FTA keys per trade_id (aggregated into int[])
+    -- FTA keys per trade_id (aggregated into int[]) — current version only
     fta_agg AS (
         SELECT
             fu.trade_id,
             ARRAY_AGG(df.fta_key ORDER BY df.fta_key) AS fta_keys
         FROM nds.fta_utilization fu
-        JOIN dds.dim_fta df ON df.fta_bk = fu.fta_id
+        JOIN dds.dim_fta df ON df.fta_bk = fu.fta_id AND df.is_current = TRUE
         GROUP BY fu.trade_id
     )
     INSERT INTO dds.fact_trade_transaction (
@@ -432,6 +570,7 @@ _SQL_UPSERT_FACT_TRADE = text("""
     JOIN dds.dim_product dp
         ON dp.hs_code    = tt.hs_code
        AND dp.hs_version = tt.hs_version
+       AND dp.is_current = TRUE
     JOIN dds.dim_country dc
         ON dc.country_code = tt.partner_code
        AND dc.is_current   = TRUE
@@ -457,6 +596,65 @@ def _load_fact_trade(engine) -> int:
         r = conn.execute(_SQL_UPSERT_FACT_TRADE)
     logger.info("Step 8:  fact_trade_transaction — upserted %d rows", r.rowcount)
     return r.rowcount
+
+
+# ---------------------------------------------------------------------------
+# nds.trade_transaction rows _SQL_UPSERT_FACT_TRADE's INNER JOINs would
+# silently exclude — no is_current=TRUE row in dds.dim_product/dim_country
+# matching the trade's hs_code/partner_code. Selected before the upsert runs
+# so they can be logged to reject_records (process_type=3) for audit.
+# ---------------------------------------------------------------------------
+_SQL_SELECT_REJECTED_FACT_TRADE = text("""
+    SELECT
+        tt.trade_id, t.year, t.month, tt.hs_code, tt.hs_version,
+        tt.partner_code, tt.flow_type, tt.record_source, tt.batch_id,
+        CASE
+            WHEN dp.product_key IS NULL THEN 'product_not_found_in_dds'
+            WHEN dc.country_key IS NULL THEN 'country_not_found_in_dds'
+        END AS reject_reason
+    FROM nds.trade_transaction tt
+    JOIN nds.time t ON t.time_id = tt.time_id
+    LEFT JOIN dds.dim_product dp
+        ON dp.hs_code = tt.hs_code AND dp.hs_version = tt.hs_version AND dp.is_current = TRUE
+    LEFT JOIN dds.dim_country dc
+        ON dc.country_code = tt.partner_code AND dc.is_current = TRUE
+    WHERE dp.product_key IS NULL OR dc.country_key IS NULL
+""")
+
+
+def _log_rejected_fact_trade(engine, log_batch_id: uuid.UUID) -> int:
+    with engine.connect() as conn:
+        rows = conn.execute(_SQL_SELECT_REJECTED_FACT_TRADE).fetchall()
+
+    if not rows:
+        return 0
+
+    by_reason: dict[str, list[dict]] = {}
+    for r in rows:
+        by_reason.setdefault(r.reject_reason, []).append({
+            "trade_id": str(r.trade_id),
+            "year": r.year,
+            "month": r.month,
+            "hs_code": r.hs_code,
+            "hs_version": r.hs_version,
+            "partner_code": r.partner_code,
+            "flow_type": r.flow_type,
+            "record_source": r.record_source,
+            "batch_id": str(r.batch_id) if r.batch_id else None,
+        })
+
+    for reason, reason_rows in by_reason.items():
+        log_reject_records(
+            engine, log_batch_id, process_type=3,
+            source_table="nds.trade_transaction",
+            reject_reason=reason, rows=reason_rows,
+        )
+
+    logger.warning(
+        "Step 8:  %d nds.trade_transaction rows rejected (%s)",
+        len(rows), ", ".join(f"{k}={len(v)}" for k, v in sorted(by_reason.items())),
+    )
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +697,9 @@ def run(batch_id: uuid.UUID | None = None) -> int:
     else:
         logger.info("NDS→DDS mode: DELTA (batch_id=%s)", batch_id)
 
+    log_target = log_batch_id or batch_id
     total = 0
+    total_rejected = 0
     try:
         total += _load_dim_time(engine)
         total += _load_dim_currency(engine)
@@ -508,6 +708,9 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         total += _load_dim_fta(engine, batch_id)
         total += _load_dim_fta_country(engine)
         total += _load_fact_exchange_rate(engine)
+
+        total_rejected += _log_rejected_fact_trade(engine, log_target)
+
         total += _load_fact_trade(engine)
 
         logger.info("NDS→DDS complete. Total rows affected: %d", total)
@@ -520,7 +723,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         raise
 
     if log_batch_id:
-        complete_batch(engine, log_batch_id, rows_loaded=total)
+        complete_batch(
+            engine, log_batch_id,
+            rows_loaded=total, rows_rejected=total_rejected, rows_upserted=total,
+        )
 
     return total
 

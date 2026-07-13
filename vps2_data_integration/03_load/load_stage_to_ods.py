@@ -117,6 +117,57 @@ UPSERT_QUERY = """
 """
 
 
+_SQL_ADVANCE_WATERMARK = text("""
+    INSERT INTO ods.etl_watermark (source_system, max_period_year, max_period_month, last_updated)
+    VALUES (:source, :yr, :mo, NOW())
+    ON CONFLICT (source_system) DO UPDATE SET
+        max_period_year  = CASE
+            WHEN EXCLUDED.max_period_year * 100 + EXCLUDED.max_period_month
+                 > COALESCE(ods.etl_watermark.max_period_year, 0) * 100
+                   + COALESCE(ods.etl_watermark.max_period_month, 0)
+            THEN EXCLUDED.max_period_year
+            ELSE ods.etl_watermark.max_period_year
+        END,
+        max_period_month = CASE
+            WHEN EXCLUDED.max_period_year * 100 + EXCLUDED.max_period_month
+                 > COALESCE(ods.etl_watermark.max_period_year, 0) * 100
+                   + COALESCE(ods.etl_watermark.max_period_month, 0)
+            THEN EXCLUDED.max_period_month
+            ELSE ods.etl_watermark.max_period_month
+        END,
+        last_updated = NOW()
+""")
+
+
+def _advance_watermarks(engine, df: pd.DataFrame) -> None:
+    """Advance ods.etl_watermark per record_source to MAX(year, month) loaded
+    in this batch, so the next run's late-arriving detection (stage_to_ods.py)
+    has an up-to-date baseline to compare against.
+    """
+    if df.empty or "record_source" not in df.columns:
+        return
+
+    tmp = df.dropna(subset=["record_source", "year", "month"]).copy()
+    if tmp.empty:
+        return
+
+    tmp["period"] = tmp["year"].astype(int) * 100 + tmp["month"].astype(int)
+
+    with engine.begin() as conn:
+        for record_source, grp in tmp.groupby("record_source"):
+            max_period = int(grp["period"].max())
+            year, month = divmod(max_period, 100)
+            conn.execute(
+                _SQL_ADVANCE_WATERMARK,
+                {"source": str(record_source), "yr": year, "mo": month},
+            )
+
+    logger.info(
+        "Advanced ods.etl_watermark for record_source(s): %s",
+        sorted(tmp["record_source"].unique().tolist()),
+    )
+
+
 def _prepare_for_db(df: pd.DataFrame, batch_id: uuid.UUID) -> pd.DataFrame:
     df = df.copy()
 
@@ -213,6 +264,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             else:
                 agg[col] = "last"
 
+        # Not a rejection: rows sharing a conflict key within this batch are
+        # legitimately aggregated (numeric columns summed) to match the ODS
+        # grain — no data is dropped, so this does not go to reject_records.
+        # Kept as an operational log line only.
         df = df.groupby(CONFLICT_KEYS, dropna=False).agg(agg).reset_index()
 
         dupes_removed = pre_dedup - len(df)
@@ -271,6 +326,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             "Upsert complete: %s rows processed into ods.trade_transaction", len(df)
         )
 
+        _advance_watermarks(engine, df)
+
     except Exception as exc:
         logger.exception("load_stage_to_ods failed")
         if managed_batch:
@@ -278,7 +335,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         raise
 
     if managed_batch:
-        complete_batch(engine, batch_id, rows_loaded=len(df))
+        complete_batch(engine, batch_id, rows_loaded=len(df), rows_upserted=len(df))
 
     return len(df)
 

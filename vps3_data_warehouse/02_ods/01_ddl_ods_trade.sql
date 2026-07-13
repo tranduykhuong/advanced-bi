@@ -128,9 +128,14 @@ CREATE TABLE IF NOT EXISTS ods.fta (
 CREATE INDEX IF NOT EXISTS idx_ods_fta_status ON ods.fta (status);
 CREATE INDEX IF NOT EXISTS idx_ods_fta_member_countries ON ods.fta USING GIN (member_countries);
 
--- Watermark for late arriving
+-- Watermark for late-arriving detection.
+-- max_period_year/max_period_month track the latest (year, month) period
+-- already loaded per source_system (e.g. TRADE_MAP, NSO, UN_COMTRADE, FRANKFURTER).
+-- An incoming row whose (year, month) is older than the current watermark for
+-- its source is flagged is_late_arriving = TRUE in ods.trade_transaction.
 CREATE TABLE IF NOT EXISTS ods.etl_watermark (
     source_system    VARCHAR(50) PRIMARY KEY,
     max_period_year  SMALLINT NOT NULL,
+    max_period_month SMALLINT,
     last_updated     TIMESTAMPTZ DEFAULT NOW()
 );

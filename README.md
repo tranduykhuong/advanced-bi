@@ -26,7 +26,7 @@ A Master's BI project implementing a **Hybrid Inmon–Kimball** data warehouse f
 | `stage` | Stage          | VARCHAR-heavy | Fast truncate-and-load landing zone from all sources |
 | `ods`   | Operational DS | Typed + keyed | Integrated operational snapshot (Inmon approach)     |
 | `nds`   | Normalized DS  | 3NF + FKs     | Master data: countries, HS codes, reporters/partners |
-| `dds`   | Dimensional DS | Star schema   | Kimball dims (SCD1/SCD2) + fact tables for OLAP      |
+| `dds`   | Dimensional DS | Star schema   | Kimball dims (SCD2 on dim_country/dim_product/dim_fta) + fact tables for OLAP |
 | `cube`  | Cube/Views     | SQL Views     | Pre-aggregated analytical hypercubes over DDS        |
 
 ### Production VPS Mapping
@@ -171,7 +171,7 @@ Project/
 │   │   ├── ods_to_nds.py   # Includes fuzzy matching
 │   │   └── late_arriving_handler.py
 │   └── 03_load/
-│       └── nds_to_dds_scd.py   # SCD Type 1 & 2 upserts
+│       └── nds_to_dds_scd.py   # SCD Type 2 upserts (dim_country/dim_product/dim_fta)
 └── vps3_data_warehouse/
     ├── Dockerfile
     ├── 00_init.sql             # Creates all 5 schemas + extensions
@@ -238,7 +238,7 @@ Four workflows under `.github/workflows/` — each VPS has its own file with nat
 ```
 01_extract          → loads raw data into stage.*  (TRUNCATE + load)
 02_cleanse          → stage.* → ods.* → nds.*      (type cast, dedup, 3NF, fuzzy match)
-03_load             → nds.* → dds.*              (SCD1/SCD2 upserts, star keys)
+03_load             → nds.* → dds.*              (SCD2 upserts, star keys)
 cube views          → defined at init             (SQL views, no ETL step needed)
 ```
 

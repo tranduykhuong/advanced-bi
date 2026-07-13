@@ -48,6 +48,12 @@ INSERT INTO ods.etl_watermark (source_system, max_period_year, last_updated)
 VALUES ('FRANKFURTER', 1999, NOW())
 ON CONFLICT (source_system) DO NOTHING;
 
+-- Add month granularity to the watermark so late-arriving detection for trade
+-- sources (TRADE_MAP, NSO, UN_COMTRADE) can compare (year, month) instead of
+-- year alone. Safe to re-run: ADD COLUMN IF NOT EXISTS is idempotent.
+ALTER TABLE ods.etl_watermark
+    ADD COLUMN IF NOT EXISTS max_period_month SMALLINT;
+
 -- ---------------------------------------------------------------------------
 -- nds.currency — master currency reference (3NF)
 -- ---------------------------------------------------------------------------

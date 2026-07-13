@@ -19,6 +19,7 @@ from sklearn.feature_extraction.text import (
 from sklearn.metrics.pairwise import (
     cosine_similarity,
 )
+from sqlalchemy import text
 
 sys.path.insert(
     0,
@@ -331,6 +332,107 @@ def apply_business_rules(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ==================== LATE-ARRIVING DETECTION ====================
+
+_SQL_SELECT_WATERMARKS = text("""
+    SELECT source_system, max_period_year, max_period_month
+    FROM ods.etl_watermark
+    WHERE source_system = ANY(:sources)
+""")
+
+# Business key already in ods.trade_transaction — used to tell a genuinely
+# new late-arriving row apart from a routine re-load of an already-known row
+# (extract_stage.py re-extracts stage.* in full on every run, not delta-only).
+_SQL_SELECT_EXISTING_KEYS = text("""
+    SELECT DISTINCT year, month, hs_code, partner_code, flow_type, record_source
+    FROM ods.trade_transaction
+""")
+
+
+def detect_late_arriving(df: pd.DataFrame, engine) -> pd.DataFrame:
+    """Flag rows whose (year, month) is older than the recorded watermark for
+    their record_source AND whose business key has never been loaded into ODS
+    before — i.e. a genuinely new, backfilled/corrected row arriving after the
+    source has already advanced past that period (BR05).
+
+    Rows whose business key already exists in ODS are a routine re-load/
+    correction of already-known data (this pipeline re-extracts stage.* in
+    full every run), not a late arrival — they are never flagged, regardless
+    of period, to avoid flooding every full re-run with false positives.
+
+    A record_source with no watermark row yet (first-ever load) is never
+    considered late — there is no baseline to compare against.
+    """
+    df = df.copy()
+
+    sources = sorted(
+        s for s in df["record_source"].dropna().astype(str).unique().tolist() if s
+    )
+    if not sources:
+        df["is_late_arriving"] = False
+        return df
+
+    try:
+        with engine.connect() as conn:
+            wm_rows = conn.execute(
+                _SQL_SELECT_WATERMARKS, {"sources": sources}
+            ).fetchall()
+    except Exception as exc:
+        logger.warning(
+            "Could not read ods.etl_watermark (%s) — treating all rows as on-time", exc
+        )
+        df["is_late_arriving"] = False
+        return df
+
+    watermark_period = {
+        row.source_system: int(row.max_period_year or 0) * 100
+        + int(row.max_period_month or 0)
+        for row in wm_rows
+    }
+
+    if not watermark_period:
+        df["is_late_arriving"] = False
+        return df
+
+    row_period = pd.to_numeric(df["year"], errors="coerce").fillna(0).astype(
+        int
+    ) * 100 + pd.to_numeric(df["month"], errors="coerce").fillna(0).astype(int)
+    wm_for_row = df["record_source"].map(watermark_period).fillna(0).astype(int)
+    older_than_watermark = row_period < wm_for_row
+
+    if older_than_watermark.any():
+        with engine.connect() as conn:
+            existing_rows = conn.execute(_SQL_SELECT_EXISTING_KEYS).fetchall()
+        existing_keys = {
+            (int(r.year), int(r.month), r.hs_code, r.partner_code,
+             bool(r.flow_type), r.record_source)
+            for r in existing_rows
+        }
+
+        def _is_new_key(row) -> bool:
+            key = (
+                int(row["year"]), int(row["month"]), row["hs_code"],
+                row["partner_code"], bool(row["flow_type"]), row["record_source"],
+            )
+            return key not in existing_keys
+
+        is_new = df.loc[older_than_watermark].apply(_is_new_key, axis=1)
+        df["is_late_arriving"] = False
+        df.loc[older_than_watermark, "is_late_arriving"] = is_new
+    else:
+        df["is_late_arriving"] = False
+
+    n_late = int(df["is_late_arriving"].sum())
+    if n_late:
+        logger.info(
+            "Late-arriving detection: %d/%d rows flagged (new business key, "
+            "older than their record_source watermark)",
+            n_late,
+            len(df),
+        )
+    return df
+
+
 # ==================== MAIN ====================
 
 
@@ -354,6 +456,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         logger.info("Loaded %s rows from stage_extracted.csv", len(df))
 
         df = apply_business_rules(df)
+        df = detect_late_arriving(df, engine)
 
         # Đảm bảo đầy đủ các cột
         for c in EXPECTED_COLS:

@@ -3,10 +3,15 @@ name: Run VPS2 ETL Pipeline
 # Runs the full ETL pipeline on VPS2 as four sequential CI/CD phase groups.
 # Manual run: Actions → Run VPS2 ETL Pipeline → Run workflow
 # Called by deploy-all.yml after VPS2 deploy.
+# Also runs automatically every day at 18:00 UTC (01:00 ICT/UTC+7) so the
+# warehouse picks up new/late-arriving source data daily via UPSERT — no
+# manual trigger or deploy required for routine daily loads.
 
 on:
   workflow_dispatch:
   workflow_call:
+  schedule:
+    - cron: "0 18 * * *"   # 18:00 UTC = 01:00 ICT (Vietnam, UTC+7)
 
 concurrency:
   group: run-vps2-pipeline

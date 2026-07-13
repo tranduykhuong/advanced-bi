@@ -7,8 +7,8 @@ Transformations:
   • Cast rate_date TEXT → DATE.
   • Cast rate TEXT → NUMERIC(18,10); reject rows where rate <= 0.
   • Derive vnd_per_usd = 1 / rate  (1 USD expressed in VND).
-  • Attach quality_flag 'RATE_INVALID' for any rejected rows (logged only —
-    they do not reach ODS).
+  • Rejected rows (bad date or bad rate) are logged to public.reject_records
+    (process_type=1, Stage->ODS) for audit — they do not reach ODS.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
 from common.logging_config import setup_logging, get_logger
-from common.db import get_engine, register_batch, complete_batch
+from common.db import get_engine, register_batch, complete_batch, log_reject_records
 from common.chunking import DEFAULT_CHUNK_SIZE
 
 logger = get_logger(__name__)
@@ -39,22 +39,29 @@ EXPECTED_COLS = [
 ]
 
 
-def transform(df_stage: pd.DataFrame, batch_id: uuid.UUID) -> pd.DataFrame:
-    """Return a clean DataFrame ready for ODS upsert."""
+def transform(
+    df_stage: pd.DataFrame, batch_id: uuid.UUID
+) -> tuple[pd.DataFrame, dict[str, list[dict]]]:
+    """Return (clean DataFrame ready for ODS upsert, rejected rows grouped by reason)."""
     df = df_stage.copy()
+    rejects_by_reason: dict[str, list[dict]] = {}
 
     # Cast date
-    df["rate_date"] = pd.to_datetime(df["rate_date"], format="%Y-%m-%d", errors="coerce")
-    bad_dates = df["rate_date"].isna()
+    parsed_date = pd.to_datetime(df["rate_date"], format="%Y-%m-%d", errors="coerce")
+    bad_dates = parsed_date.isna()
     if bad_dates.any():
         logger.warning("RATE_INVALID: %d rows with bad rate_date — dropped", bad_dates.sum())
+        rejects_by_reason["invalid_rate_date"] = df.loc[bad_dates].to_dict("records")
         df = df[~bad_dates]
+        parsed_date = parsed_date[~bad_dates]
+    df["rate_date"] = parsed_date
 
     # Cast rate
     df["rate"] = pd.to_numeric(df["rate"], errors="coerce")
     bad_rates = df["rate"].isna() | (df["rate"] <= 0)
     if bad_rates.any():
         logger.warning("RATE_INVALID: %d rows with rate <= 0 — dropped", bad_rates.sum())
+        rejects_by_reason["invalid_rate_value"] = df.loc[bad_rates].to_dict("records")
         df = df[~bad_rates]
 
     # Derive inverse rate for convenience
@@ -63,7 +70,10 @@ def transform(df_stage: pd.DataFrame, batch_id: uuid.UUID) -> pd.DataFrame:
     df["source_system"] = "FRANKFURTER"
     df["batch_id"] = str(batch_id)
 
-    return df[["rate_date", "base_currency", "quote_currency", "rate", "vnd_per_usd", "source_system", "batch_id"]].reset_index(drop=True)
+    df_out = df[
+        ["rate_date", "base_currency", "quote_currency", "rate", "vnd_per_usd", "source_system", "batch_id"]
+    ].reset_index(drop=True)
+    return df_out, rejects_by_reason
 
 
 def run(batch_id: uuid.UUID | None = None) -> tuple[pd.DataFrame, uuid.UUID]:
@@ -95,8 +105,15 @@ def run(batch_id: uuid.UUID | None = None) -> tuple[pd.DataFrame, uuid.UUID]:
         else:
             df_raw = pd.concat(chunks, ignore_index=True)
             logger.info("Read %d rows from stage.stage_exchange_rate", len(df_raw))
-            df_out = transform(df_raw, batch_id)
+            df_out, rejects_by_reason = transform(df_raw, batch_id)
             logger.info("Transform produced %d ODS-ready rows", len(df_out))
+
+            for reason, rows in rejects_by_reason.items():
+                log_reject_records(
+                    engine, batch_id, process_type=1,
+                    source_table="stage.stage_exchange_rate",
+                    reject_reason=reason, rows=rows,
+                )
 
     except Exception as exc:
         logger.exception("exchange_rate_stage_to_ods failed: %s", exc)

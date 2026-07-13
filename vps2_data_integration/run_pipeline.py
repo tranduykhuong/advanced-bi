@@ -62,7 +62,6 @@ PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
         # ETL Stage → ODS (Trade)
         ("01_extract.extract_stage", "Phase 01: Extract from Stage"),
         ("02_transform.stage_to_ods", "Phase 02: Stage → ODS (Transform + BR)"),
-        # ("02_transform.late_arriving_handler", "Phase 02: Late-Arriving Handler"),
         ("03_load.load_stage_to_ods", "Phase 03: Load into ODS (UPSERT)"),
         # ETL Stage → ODS (Exchange Rate)
         ("02_transform.exchange_rate_stage_to_ods", "Phase 02: Exchange Rate Stage → ODS (Transform)"),
@@ -71,6 +70,9 @@ PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
     "ods-nds": [
         # ETL ODS → NDS
         ("02_transform.ods_to_nds", "Phase 02: ODS → NDS (3NF)"),
+        # Must run after ods_to_nds: verifies late-arriving rows propagated to
+        # NDS and clears their is_late_arriving flag (see module docstring).
+        ("02_transform.late_arriving_handler", "Phase 02b: Late-Arriving Handler"),
     ],
     "nds-dds": [
         # ETL NDS → DDS

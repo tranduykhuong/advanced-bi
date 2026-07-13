@@ -7,9 +7,50 @@
 --   → dim_fta_country (bridge)
 --   → fact_exchange_rate → fact_trade_transaction
 --
+-- Also bundles two closely related ETL-audit additions from the same change:
+--   • dim_product / dim_fta used SCD Type 2 (is_current + version + partial unique index), matching dim_country's existing pattern.
+--     Per the report design, SCD2 here tracks only is_current/version — no
+--     valid_from/valid_to date range (dim_country never had one either as of
+--     this revision).
+--   • public.etl_batch_log / public.reject_records: rejected/upserted counters
+--     and a reject-records audit table shared by Stage→ODS, ODS→NDS, NDS→DDS.
+--
 -- All statements use IF NOT EXISTS / ON CONFLICT so this script is idempotent.
 -- Safe to re-run on an existing database.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 0. public.etl_batch_log / public.reject_records
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.etl_batch_log
+    ADD COLUMN IF NOT EXISTS rows_rejected INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS rows_upserted INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS public.reject_records (
+    reject_id        BIGSERIAL    NOT NULL,
+    batch_id         UUID         NOT NULL,
+    process_type     SMALLINT     NOT NULL
+                                  CHECK (process_type IN (1, 2, 3)),
+                                  -- 1 = Stage -> ODS, 2 = ODS -> NDS, 3 = NDS -> DDS
+    source_table     VARCHAR(100) NOT NULL,
+    reject_reason    TEXT         NOT NULL,
+    row_data         JSONB,
+    rejected_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT pk_reject_records PRIMARY KEY (reject_id),
+    CONSTRAINT fk_reject_records_batch
+        FOREIGN KEY (batch_id) REFERENCES public.etl_batch_log (batch_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_reject_records_batch_id
+    ON public.reject_records (batch_id);
+
+CREATE INDEX IF NOT EXISTS ix_reject_records_process_type
+    ON public.reject_records (process_type);
+
+COMMENT ON TABLE public.reject_records IS
+    'Rows rejected/excluded during ETL (Stage->ODS=1, ODS->NDS=2, NDS->DDS=3). '
+    'Used for audit and data traceability alongside etl_batch_log.';
 
 -- ---------------------------------------------------------------------------
 -- 1. dds.dim_time
@@ -59,13 +100,17 @@ CREATE TABLE IF NOT EXISTS dds.dim_country (
     region          TEXT,
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
-    valid_from      DATE         NOT NULL DEFAULT CURRENT_DATE,
-    valid_to        DATE         NOT NULL DEFAULT '9999-12-31',
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT pk_dds_dim_country PRIMARY KEY (country_key)
 );
+
+-- Retrofit: earlier revisions of this migration added valid_from/valid_to.
+-- Per the report design, SCD2 here only needs is_current + version.
+ALTER TABLE dds.dim_country
+    DROP COLUMN IF EXISTS valid_from,
+    DROP COLUMN IF EXISTS valid_to;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_country_current
     ON dds.dim_country (country_code)
@@ -76,11 +121,11 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_country_code
 
 COMMENT ON TABLE  dds.dim_country IS 'SCD Type 2 country dimension. One is_current=TRUE row per country_code.';
 COMMENT ON COLUMN dds.dim_country.version    IS 'Increments with each SCD2 change.';
-COMMENT ON COLUMN dds.dim_country.valid_from IS 'Date this version became active.';
-COMMENT ON COLUMN dds.dim_country.valid_to   IS '9999-12-31 for the current active version.';
 
 -- ---------------------------------------------------------------------------
--- 4. dds.dim_product  (SCD Type 1)
+-- 4. dds.dim_product  (SCD Type 2)
+-- Originally shipped as SCD1 (uq_dds_dim_product_bk); the ALTER/DROP/CREATE
+-- block below retrofits an existing SCD1 table to SCD2 in place.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_product (
     product_key     BIGSERIAL    NOT NULL,
@@ -97,8 +142,7 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT pk_dds_dim_product    PRIMARY KEY (product_key),
-    CONSTRAINT uq_dds_dim_product_bk UNIQUE (hs_code, hs_version)
+    CONSTRAINT pk_dds_dim_product    PRIMARY KEY (product_key)
 );
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_chapter
@@ -109,11 +153,30 @@ ALTER TABLE dds.dim_product ADD COLUMN IF NOT EXISTS hs_heading CHAR(4);
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_heading
     ON dds.dim_product (hs_heading);
 
-COMMENT ON TABLE  dds.dim_product IS 'SCD Type 1 product dimension keyed on (hs_code, hs_version).';
-COMMENT ON COLUMN dds.dim_product.version IS 'Increments each time any attribute is overwritten (SCD1).';
+-- SCD2 retrofit: swap the plain business-key unique constraint for a partial
+-- unique index scoped to is_current = TRUE. Drop valid_from/valid_to if an
+-- earlier revision of this migration already added them — per the report
+-- design, SCD2 here only needs is_current + version.
+ALTER TABLE dds.dim_product
+    DROP COLUMN IF EXISTS valid_from,
+    DROP COLUMN IF EXISTS valid_to;
+
+ALTER TABLE dds.dim_product DROP CONSTRAINT IF EXISTS uq_dds_dim_product_bk;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_product_current
+    ON dds.dim_product (hs_code, hs_version)
+    WHERE is_current = TRUE;
+
+CREATE INDEX IF NOT EXISTS ix_dds_dim_product_bk
+    ON dds.dim_product (hs_code, hs_version);
+
+COMMENT ON TABLE  dds.dim_product IS 'SCD Type 2 product dimension. One is_current=TRUE row per (hs_code, hs_version).';
+COMMENT ON COLUMN dds.dim_product.version    IS 'Increments with each SCD2 change.';
 
 -- ---------------------------------------------------------------------------
--- 5. dds.dim_fta  (SCD Type 1)
+-- 5. dds.dim_fta  (SCD Type 2)
+-- Originally shipped as SCD1 (uq_dds_dim_fta_bk); the ALTER/DROP/CREATE
+-- block below retrofits an existing SCD1 table to SCD2 in place.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_fta (
     fta_key         SERIAL       NOT NULL,
@@ -130,8 +193,7 @@ CREATE TABLE IF NOT EXISTS dds.dim_fta (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT pk_dds_dim_fta    PRIMARY KEY (fta_key),
-    CONSTRAINT uq_dds_dim_fta_bk UNIQUE (fta_bk)
+    CONSTRAINT pk_dds_dim_fta    PRIMARY KEY (fta_key)
 );
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_status
@@ -140,8 +202,26 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_status
 CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_enforcement_year
     ON dds.dim_fta (enforcement_year);
 
-COMMENT ON TABLE  dds.dim_fta IS 'SCD Type 1 Free Trade Agreement dimension.';
-COMMENT ON COLUMN dds.dim_fta.fta_bk IS 'Business key — references nds.fta.fta_id.';
+-- SCD2 retrofit: swap the plain business-key unique constraint for a partial
+-- unique index scoped to is_current = TRUE. Drop valid_from/valid_to if an
+-- earlier revision of this migration already added them — per the report
+-- design, SCD2 here only needs is_current + version.
+ALTER TABLE dds.dim_fta
+    DROP COLUMN IF EXISTS valid_from,
+    DROP COLUMN IF EXISTS valid_to;
+
+ALTER TABLE dds.dim_fta DROP CONSTRAINT IF EXISTS uq_dds_dim_fta_bk;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_fta_current
+    ON dds.dim_fta (fta_bk)
+    WHERE is_current = TRUE;
+
+CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_bk
+    ON dds.dim_fta (fta_bk);
+
+COMMENT ON TABLE  dds.dim_fta IS 'SCD Type 2 Free Trade Agreement dimension. One is_current=TRUE row per fta_bk.';
+COMMENT ON COLUMN dds.dim_fta.fta_bk      IS 'Business key — references nds.fta.fta_id.';
+COMMENT ON COLUMN dds.dim_fta.version     IS 'Increments with each SCD2 change.';
 
 -- ---------------------------------------------------------------------------
 -- 6. dds.dim_fta_country  (Bridge)

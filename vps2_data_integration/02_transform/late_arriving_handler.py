@@ -1,36 +1,66 @@
 """
-Phase 02c — Late-Arriving Data Handler
+Phase — Late-Arriving Data Handler
+
+Runs in the "ods-nds" phase group, immediately after 02_transform.ods_to_nds.
+
+Why this runs *after* ods_to_nds (not before, as the original placeholder had
+it): ods_to_nds upserts ods.trade_transaction into nds.trade_transaction by
+business key (time, hs_code, partner_code, flow_type, record_source)
+regardless of is_late_arriving — so a late-arriving row from the current
+batch is already correctly re-upserted into NDS (and, downstream, DDS via
+nds_to_dds_scd) by the time this handler runs.
 
 Responsibility:
-  - Detect rows marked as late-arriving in ODS.
-  - Reprocess and re-upsert them into downstream layers (NDS).
-  - Update etl_watermark and clear the late-arriving flag.
-
-This ensures data consistency when delayed or corrected data arrives after initial load.
+  - Find rows in ods.trade_transaction flagged is_late_arriving = TRUE.
+  - Verify each one now has a matching row in nds.trade_transaction (joined
+    via ods_id, which ods_to_nds always carries through).
+  - Clear is_late_arriving for rows confirmed present in NDS.
+  - For any late row NOT found in NDS (e.g. excluded by ods_to_nds's mandatory
+    business-key filter — missing hs_code/partner_code), log it to
+    public.reject_records for audit and leave its flag set so it is retried
+    on the next pipeline run instead of silently disappearing.
 """
+
+from __future__ import annotations
 
 import sys
 import uuid
-import pandas as pd
 from pathlib import Path
+
 from sqlalchemy import text
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
 from common.logging_config import setup_logging, get_logger
-from common.db import get_engine, register_batch, complete_batch
+from common.db import get_engine, register_batch, complete_batch, log_reject_records
 
 logger = get_logger(__name__)
 
 
-def run(batch_id: uuid.UUID | None = None) -> int:
-    """
-    Handle late-arriving data from ODS layer.
+_SQL_SELECT_LATE = text("""
+    SELECT ods_id, year, month, hs_code, partner_code, flow_type, record_source
+    FROM ods.trade_transaction
+    WHERE is_late_arriving = TRUE
+    ORDER BY year DESC, month DESC
+""")
 
-    Returns:
-        int: Number of rows successfully reprocessed.
-    """
+_SQL_SELECT_PROPAGATED = text("""
+    SELECT ods_id
+    FROM nds.trade_transaction
+    WHERE ods_id = ANY(CAST(:ods_ids AS uuid[]))
+""")
+
+_SQL_CLEAR_FLAG = text("""
+    UPDATE ods.trade_transaction
+    SET is_late_arriving = FALSE,
+        updated_at       = NOW()
+    WHERE ods_id = ANY(CAST(:ods_ids AS uuid[]))
+""")
+
+
+def run(batch_id: uuid.UUID | None = None) -> int:
+    """Verify and clear late-arriving rows. Returns the number cleared."""
     cfg = load_config()
     setup_logging(level=cfg.log_level)
     engine = get_engine(cfg)
@@ -39,67 +69,73 @@ def run(batch_id: uuid.UUID | None = None) -> int:
     if managed_batch:
         batch_id = register_batch(engine, "late_arriving_handler")
 
-    rows_reprocessed = 0
+    cleared = 0
+    unresolved = 0
 
     try:
-        # Step 1: Find all late-arriving rows
-        select_late_sql = """
-        SELECT * FROM ods.trade_transaction 
-        WHERE is_late_arriving = TRUE
-        ORDER BY year DESC, month DESC
-        """
+        with engine.connect() as conn:
+            late_rows = conn.execute(_SQL_SELECT_LATE).fetchall()
 
-        df_late = pd.read_sql(select_late_sql, engine)
-        rows_reprocessed = len(df_late)
-
-        if rows_reprocessed == 0:
-            logger.info("No late-arriving data found in ODS.")
+        if not late_rows:
+            logger.info("No late-arriving rows pending in ODS.")
             if managed_batch:
                 complete_batch(engine, batch_id, rows_loaded=0)
             return 0
 
-        logger.info(f"Found {rows_reprocessed} late-arriving rows to reprocess.")
+        logger.info("Found %d late-arriving row(s) in ODS.", len(late_rows))
 
-        # Step 2: Reprocess logic (add more transformation if needed)
-        # Currently, data in ODS is already enriched.
-        # You can call transform functions here if necessary.
+        ods_ids = [str(r.ods_id) for r in late_rows]
+        with engine.connect() as conn:
+            propagated = {
+                str(r.ods_id)
+                for r in conn.execute(
+                    _SQL_SELECT_PROPAGATED, {"ods_ids": ods_ids}
+                ).fetchall()
+            }
 
-        # Step 3: Re-upsert into NDS (placeholder - update when NDS is ready)
-        # Example:
-        # df_late.to_sql('trade_transaction', engine, schema='nds',
-        #                if_exists='append', index=False, method='multi')
+        resolved_rows = [r for r in late_rows if str(r.ods_id) in propagated]
+        unresolved_rows = [r for r in late_rows if str(r.ods_id) not in propagated]
 
-        logger.info(f"Successfully reprocessed {rows_reprocessed} rows into NDS layer.")
+        if resolved_rows:
+            resolved_ids = [str(r.ods_id) for r in resolved_rows]
+            with engine.begin() as conn:
+                result = conn.execute(_SQL_CLEAR_FLAG, {"ods_ids": resolved_ids})
+            cleared = result.rowcount
+            logger.info(
+                "Cleared is_late_arriving on %d row(s) confirmed in nds.trade_transaction.",
+                cleared,
+            )
 
-        # Step 4: Mark as processed + Update Watermark
-        with engine.begin() as conn:
-
-            # Clear late-arriving flag
-            clear_flag_sql = """
-            UPDATE ods.trade_transaction 
-            SET is_late_arriving = FALSE,
-                load_at = NOW()
-            WHERE is_late_arriving = TRUE
-            """
-            conn.execute(text(clear_flag_sql))
-
-            # Update etl_watermark
-            update_watermark_sql = """
-            INSERT INTO ods.etl_watermark (source_system, max_period_year)
-            SELECT 
-                source_system,
-                MAX(year) AS max_period_year
-            FROM ods.trade_transaction
-            GROUP BY source_system
-            ON CONFLICT (source_system) 
-            DO UPDATE SET 
-                max_period_year = GREATEST(EXCLUDED.max_period_year, ods.etl_watermark.max_period_year),
-                last_updated = NOW()
-            """
-            conn.execute(text(update_watermark_sql))
+        if unresolved_rows:
+            unresolved = len(unresolved_rows)
+            log_reject_records(
+                engine,
+                batch_id,
+                process_type=2,
+                source_table="ods.trade_transaction",
+                reject_reason="late_arriving_not_yet_propagated_to_nds",
+                rows=[
+                    {
+                        "ods_id": str(r.ods_id),
+                        "year": r.year,
+                        "month": r.month,
+                        "hs_code": r.hs_code,
+                        "partner_code": r.partner_code,
+                        "flow_type": r.flow_type,
+                        "record_source": r.record_source,
+                    }
+                    for r in unresolved_rows
+                ],
+            )
+            logger.warning(
+                "%d late-arriving row(s) not yet found in NDS — flag left set, "
+                "logged to reject_records for retry on the next run.",
+                unresolved,
+            )
 
         logger.info(
-            "✅ Late-arriving handler completed. Watermark updated and flags cleared."
+            "Late-arriving handler complete: %d cleared, %d unresolved (of %d total).",
+            cleared, unresolved, len(late_rows),
         )
 
     except Exception as exc:
@@ -109,10 +145,16 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         raise
 
     if managed_batch:
-        complete_batch(engine, batch_id, rows_loaded=rows_reprocessed)
+        complete_batch(
+            engine,
+            batch_id,
+            rows_loaded=cleared,
+            rows_rejected=unresolved,
+            rows_upserted=cleared,
+        )
 
-    return rows_reprocessed
+    return cleared
 
 
 if __name__ == "__main__":
-    run()
+    sys.exit(0 if run() >= 0 else 1)

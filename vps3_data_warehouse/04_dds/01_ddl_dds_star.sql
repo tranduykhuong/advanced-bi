@@ -4,8 +4,8 @@
 --
 -- Design rules for this layer (Kimball):
 --   • Surrogate keys (integer sequences) on all dimension tables.
---   • SCD Type 2 on dds.dim_country  (valid_from / valid_to / is_current / version).
---   • SCD Type 1 on dds.dim_product, dds.dim_fta (overwrite + version counter).
+--   • SCD Type 2 on dds.dim_country, dds.dim_product, dds.dim_fta
+--     (is_current / version on all three — new row + version+1 on change).
 --   • dds.dim_time is a conformed monthly calendar dimension.
 --   • dds.dim_currency is a conformed currency dimension (seed: VND, USD).
 --   • dds.dim_fta_country is a bridge table replacing the flat text partner_countries.
@@ -79,8 +79,6 @@ CREATE TABLE IF NOT EXISTS dds.dim_country (
     -- SCD2 tracking columns
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
-    valid_from      DATE         NOT NULL DEFAULT CURRENT_DATE,
-    valid_to        DATE         NOT NULL DEFAULT '9999-12-31',
 
     -- Lineage
     batch_id        UUID,
@@ -100,12 +98,12 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_country_code
 
 COMMENT ON TABLE  dds.dim_country IS 'SCD Type 2 country dimension. One is_current=TRUE row per country_code.';
 COMMENT ON COLUMN dds.dim_country.version    IS 'Increments with each SCD2 change.';
-COMMENT ON COLUMN dds.dim_country.valid_from IS 'Date this version became active.';
-COMMENT ON COLUMN dds.dim_country.valid_to   IS '9999-12-31 for the current active version.';
 
 -- ---------------------------------------------------------------------------
--- dds.dim_product  — SCD Type 1
--- Overwrites product attributes in-place; version counter tracks changes.
+-- dds.dim_product  — SCD Type 2
+-- Tracks historical changes to product attributes (chapter/heading/name).
+-- A partial unique index enforces exactly one is_current = TRUE per
+-- (hs_code, hs_version).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_product (
     product_key     BIGSERIAL    NOT NULL,   -- surrogate key
@@ -121,7 +119,7 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
     heading_name    TEXT,                    -- 4-digit heading description
     product_name    TEXT,                    -- full product name
 
-    -- SCD1 tracking columns
+    -- SCD2 tracking columns
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
 
@@ -130,9 +128,16 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT pk_dds_dim_product     PRIMARY KEY (product_key),
-    CONSTRAINT uq_dds_dim_product_bk  UNIQUE (hs_code, hs_version)
+    CONSTRAINT pk_dds_dim_product     PRIMARY KEY (product_key)
 );
+
+-- Partial unique index: only one active row per (hs_code, hs_version)
+CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_product_current
+    ON dds.dim_product (hs_code, hs_version)
+    WHERE is_current = TRUE;
+
+CREATE INDEX IF NOT EXISTS ix_dds_dim_product_bk
+    ON dds.dim_product (hs_code, hs_version);
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_chapter
     ON dds.dim_product (hs_chapter);
@@ -140,12 +145,13 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_product_chapter
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_heading
     ON dds.dim_product (hs_heading);
 
-COMMENT ON TABLE  dds.dim_product IS 'SCD Type 1 product dimension keyed on (hs_code, hs_version).';
-COMMENT ON COLUMN dds.dim_product.version IS 'Increments each time any attribute is overwritten (SCD1).';
+COMMENT ON TABLE  dds.dim_product IS 'SCD Type 2 product dimension. One is_current=TRUE row per (hs_code, hs_version).';
+COMMENT ON COLUMN dds.dim_product.version    IS 'Increments with each SCD2 change.';
 
 -- ---------------------------------------------------------------------------
--- dds.dim_fta  — SCD Type 1
--- Free Trade Agreement reference. Attributes overwritten in-place.
+-- dds.dim_fta  — SCD Type 2
+-- Free Trade Agreement reference. Historical changes to FTA attributes
+-- (status, scope, enforcement_year, ...) are preserved as new versions.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dds.dim_fta (
     fta_key         SERIAL       NOT NULL,   -- surrogate key
@@ -161,7 +167,7 @@ CREATE TABLE IF NOT EXISTS dds.dim_fta (
     enforcement_year INTEGER,
     status          TEXT,                    -- e.g. 'In Force', 'Signed'
 
-    -- SCD1 tracking columns
+    -- SCD2 tracking columns
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
 
@@ -170,9 +176,16 @@ CREATE TABLE IF NOT EXISTS dds.dim_fta (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT pk_dds_dim_fta    PRIMARY KEY (fta_key),
-    CONSTRAINT uq_dds_dim_fta_bk UNIQUE (fta_bk)
+    CONSTRAINT pk_dds_dim_fta    PRIMARY KEY (fta_key)
 );
+
+-- Partial unique index: only one active row per fta_bk
+CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_fta_current
+    ON dds.dim_fta (fta_bk)
+    WHERE is_current = TRUE;
+
+CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_bk
+    ON dds.dim_fta (fta_bk);
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_status
     ON dds.dim_fta (status);
@@ -180,8 +193,9 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_status
 CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_enforcement_year
     ON dds.dim_fta (enforcement_year);
 
-COMMENT ON TABLE  dds.dim_fta IS 'SCD Type 1 Free Trade Agreement dimension.';
-COMMENT ON COLUMN dds.dim_fta.fta_bk IS 'Business key — references nds.fta.fta_id.';
+COMMENT ON TABLE  dds.dim_fta IS 'SCD Type 2 Free Trade Agreement dimension. One is_current=TRUE row per fta_bk.';
+COMMENT ON COLUMN dds.dim_fta.fta_bk      IS 'Business key — references nds.fta.fta_id.';
+COMMENT ON COLUMN dds.dim_fta.version     IS 'Increments with each SCD2 change.';
 
 -- ---------------------------------------------------------------------------
 -- dds.dim_fta_country  — Bridge table
@@ -268,10 +282,10 @@ CREATE TABLE IF NOT EXISTS dds.fact_trade_transaction (
 
     -- Dimension FKs
     time_key        INTEGER      NOT NULL,   -- FK → dds.dim_time
-    product_key     BIGINT       NOT NULL,   -- FK → dds.dim_product
+    product_key     BIGINT       NOT NULL,   -- FK → dds.dim_product (is_current at load time)
     partner_key     BIGINT       NOT NULL,   -- FK → dds.dim_country (is_current at load time)
 
-    -- FTA utilization (denormalized array of dim_fta surrogate keys)
+    -- FTA utilization (denormalized array of dim_fta surrogate keys, is_current at load time)
     fta_keys        INTEGER[],              -- NULL if no FTA utilization recorded
 
     -- Degenerate dimensions / grain attributes

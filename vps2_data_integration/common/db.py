@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from contextlib import contextmanager
@@ -87,6 +88,8 @@ def complete_batch(
     batch_id: uuid.UUID,
     rows_extracted: int = 0,
     rows_loaded: int = 0,
+    rows_rejected: int = 0,
+    rows_upserted: int = 0,
     status: str = "SUCCESS",
     error_message: str | None = None,
 ) -> None:
@@ -97,6 +100,7 @@ def complete_batch(
                 "UPDATE public.etl_batch_log "
                 "SET finished_at = NOW(), status = :status, "
                 "    rows_extracted = :rext, rows_loaded = :rl, "
+                "    rows_rejected = :rrej, rows_upserted = :rups, "
                 "    error_message = :err "
                 "WHERE batch_id = :bid"
             ),
@@ -105,10 +109,57 @@ def complete_batch(
                 "status": status,
                 "rext": rows_extracted,
                 "rl": rows_loaded,
+                "rrej": rows_rejected,
+                "rups": rows_upserted,
                 "err": error_message,
             },
         )
     logger.info(
-        "Batch completed batch_id=%s status=%s rows_extracted=%d rows_loaded=%d",
-        batch_id, status, rows_extracted, rows_loaded,
+        "Batch completed batch_id=%s status=%s rows_extracted=%d rows_loaded=%d "
+        "rows_rejected=%d rows_upserted=%d",
+        batch_id, status, rows_extracted, rows_loaded, rows_rejected, rows_upserted,
     )
+
+
+def log_reject_records(
+    engine: Engine,
+    batch_id: uuid.UUID,
+    process_type: int,
+    source_table: str,
+    reject_reason: str,
+    rows: list[dict],
+) -> int:
+    """Bulk-insert excluded/invalid rows into public.reject_records for audit
+    and data-lineage traceability.
+
+    process_type: 1 = Stage->ODS, 2 = ODS->NDS, 3 = NDS->DDS.
+    rows: JSON-serializable dicts, one per rejected record.
+    Returns the number of rows inserted (0 if ``rows`` is empty).
+    """
+    if not rows:
+        return 0
+    payload = [
+        {
+            "batch_id": str(batch_id),
+            "process_type": process_type,
+            "source_table": source_table,
+            "reject_reason": reject_reason,
+            "row_data": json.dumps(row, default=str),
+        }
+        for row in rows
+    ]
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO public.reject_records "
+                "(batch_id, process_type, source_table, reject_reason, row_data) "
+                "VALUES (:batch_id, :process_type, :source_table, :reject_reason, "
+                "        CAST(:row_data AS JSONB))"
+            ),
+            payload,
+        )
+    logger.warning(
+        "Logged %d reject_records (process_type=%d, source_table=%s, reason=%s)",
+        len(payload), process_type, source_table, reject_reason,
+    )
+    return len(payload)

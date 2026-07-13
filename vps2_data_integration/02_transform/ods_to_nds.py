@@ -18,6 +18,19 @@ Load modes:
              with that batch_id are processed.
   • Full   — batch_id is None: all ODS rows are processed (local dev default
              when running ``python run_pipeline.py --phase ods-nds`` alone).
+
+Business rules enforced at this layer (see report section VIII):
+  BR01 — value must be > 0.
+  BR02 — value must be numeric (non-numeric input is already coerced to NULL
+         by stage_to_ods.py; a NULL value here is treated as a BR02 violation).
+  BR03 — hs_code must be 2-8 digits.
+  BR04 — hs_code/partner_code still NULL after Stage→ODS inference is rejected.
+  BR06 — partner_code must be a real ISO-3166-1 alpha-3 code (not just non-null).
+  BR08 — FTA utilization only counts when partner AND Vietnam are both members
+         of the same FTA (see _sql_insert_fta_util).
+Rows violating BR01/02/03/04/06 are excluded from nds.trade_transaction (and
+from the nds.country/nds.product master upserts) and logged to
+public.reject_records via _log_rejected_trade.
 """
 
 from __future__ import annotations
@@ -33,10 +46,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import load_config
 from common.logging_config import setup_logging, get_logger
-from common.db import get_engine, register_batch, complete_batch
-from common.country_resolver import resolve_from_country_name
+from common.db import get_engine, register_batch, complete_batch, log_reject_records
+from common.country_resolver import resolve_from_country_name, ALPHA3_TO_META
 
 logger = get_logger(__name__)
+
+# BR03: HS Code must be 2-8 digits.
+_HS_CODE_FORMAT_RE = "^[0-9]{2,8}$"
+
+
+def _invalid_code_condition(alias: str, has_invalid_codes: bool) -> str:
+    """SQL boolean fragment: TRUE when <alias>.partner_code is a known-invalid
+    (non-ISO-3) code. Returns the literal 'FALSE' when there are none in scope,
+    so the :invalid_codes bind parameter is only referenced when needed.
+    """
+    if not has_invalid_codes:
+        return "FALSE"
+    prefix = f"{alias}." if alias else ""
+    return f"{prefix}partner_code = ANY(CAST(:invalid_codes AS text[]))"
 
 
 def _batch_and(full_sync: bool, alias: str = "") -> str:
@@ -52,10 +79,35 @@ def _sql_params(full_sync: bool, batch_id: uuid.UUID) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# BR06 — determine which partner_code values in scope are NOT genuine
+# ISO-3166-1 alpha-3 codes (as opposed to merely being non-null).
+# ---------------------------------------------------------------------------
+def _find_invalid_country_codes(engine, full_sync: bool, params: dict) -> list[str]:
+    b = _batch_and(full_sync, alias="o")
+    sql = text(f"""
+        SELECT DISTINCT o.partner_code
+        FROM ods.trade_transaction o
+        WHERE {b}o.partner_code IS NOT NULL AND o.partner_code <> ''
+    """)
+    with engine.connect() as conn:
+        codes = [r.partner_code for r in conn.execute(sql, params).fetchall()]
+
+    invalid = sorted({c for c in codes if c.upper() not in ALPHA3_TO_META})
+    if invalid:
+        logger.warning(
+            "BR06: %d partner_code value(s) are not valid ISO-3166-1 alpha-3 "
+            "codes and will be rejected: %s",
+            len(invalid), invalid,
+        )
+    return invalid
+
+
+# ---------------------------------------------------------------------------
 # SQL builders (delta vs full sync)
 # ---------------------------------------------------------------------------
-def _sql_upsert_countries_trade(full_sync: bool) -> text:
+def _sql_upsert_countries_trade(full_sync: bool, has_invalid_codes: bool) -> text:
     b = _batch_and(full_sync)
+    invalid_cond = _invalid_code_condition("", has_invalid_codes)
     return text(f"""
         INSERT INTO nds.country (country_code, country_name, continent, region)
         SELECT DISTINCT
@@ -66,6 +118,7 @@ def _sql_upsert_countries_trade(full_sync: bool) -> text:
         FROM ods.trade_transaction
         WHERE {b}partner_code IS NOT NULL
           AND partner_code <> ''
+          AND NOT ({invalid_cond})
         GROUP BY partner_code
         ON CONFLICT (country_code) DO UPDATE SET
             country_name = COALESCE(EXCLUDED.country_name, nds.country.country_name),
@@ -88,6 +141,7 @@ def _sql_upsert_products(full_sync: bool) -> text:
         FROM ods.trade_transaction
         WHERE {b}hs_code IS NOT NULL
           AND hs_code <> ''
+          AND hs_code ~ '{_HS_CODE_FORMAT_RE}'
         ORDER BY hs_code, product_name NULLS LAST
         ON CONFLICT (hs_code, hs_version) DO UPDATE SET
             category_chapter = COALESCE(EXCLUDED.category_chapter, nds.product.category_chapter),
@@ -144,8 +198,9 @@ def _sql_upsert_fta(full_sync: bool) -> text:
     """)
 
 
-def _sql_upsert_trade(full_sync: bool) -> text:
+def _sql_upsert_trade(full_sync: bool, has_invalid_codes: bool) -> text:
     b = _batch_and(full_sync, alias="o")
+    invalid_cond = _invalid_code_condition("o", has_invalid_codes)
     return text(f"""
         INSERT INTO nds.trade_transaction (
             time_id, hs_code, hs_version, partner_code, flow_type,
@@ -168,10 +223,14 @@ def _sql_upsert_trade(full_sync: bool) -> text:
             o.ods_id
         FROM ods.trade_transaction o
         JOIN nds.time t ON t.year = o.year AND t.month = o.month
-        WHERE {b}o.partner_code IS NOT NULL
-          AND o.partner_code <> ''
-          AND o.hs_code IS NOT NULL
-          AND o.hs_code <> ''
+        WHERE {b}o.partner_code IS NOT NULL          -- BR04/BR06
+          AND o.partner_code <> ''                   -- BR04/BR06
+          AND NOT ({invalid_cond})                    -- BR06
+          AND o.hs_code IS NOT NULL                   -- BR04
+          AND o.hs_code <> ''                         -- BR04
+          AND o.hs_code ~ '{_HS_CODE_FORMAT_RE}'       -- BR03
+          AND o.value IS NOT NULL                     -- BR01/BR02
+          AND o.value > 0                              -- BR01
         ON CONFLICT (time_id, hs_code, hs_version, partner_code, flow_type, record_source)
         DO UPDATE SET
             value            = EXCLUDED.value,
@@ -183,6 +242,93 @@ def _sql_upsert_trade(full_sync: bool) -> text:
             ods_id           = EXCLUDED.ods_id,
             updated_at       = NOW()
     """)
+
+
+def _sql_select_rejected_trade(full_sync: bool, has_invalid_codes: bool) -> text:
+    """ods.trade_transaction rows that _sql_upsert_trade's WHERE clause would
+    silently exclude. Selected *before* the upsert so they can be logged to
+    reject_records for audit. The conditions here MUST mirror the negation of
+    _sql_upsert_trade's WHERE clause exactly.
+
+    Covers: BR01 (value > 0), BR02 (value numeric — non-numeric input is
+    already coerced to NULL upstream, so a NULL value here is a BR02 case),
+    BR03 (hs_code 2-8 digits), BR04 (hs_code/partner_code missing),
+    BR06 (partner_code missing or not a valid ISO-3 code).
+    """
+    b = _batch_and(full_sync, alias="o")
+    invalid_cond = _invalid_code_condition("o", has_invalid_codes)
+    return text(f"""
+        SELECT
+            o.ods_id, o.year, o.month, o.hs_code, o.partner_code,
+            o.flow_type, o.record_source, o.batch_id, o.value,
+            CASE
+                WHEN o.hs_code IS NULL OR o.hs_code = ''
+                    THEN 'missing_hs_code'
+                WHEN o.hs_code !~ '{_HS_CODE_FORMAT_RE}'
+                    THEN 'invalid_hs_code_format'
+                WHEN o.partner_code IS NULL OR o.partner_code = ''
+                    THEN 'missing_partner_code'
+                WHEN {invalid_cond}
+                    THEN 'invalid_partner_code'
+                WHEN o.value IS NULL OR o.value <= 0
+                    THEN 'invalid_value'
+            END AS reject_reason
+        FROM ods.trade_transaction o
+        WHERE {b}(
+            o.hs_code IS NULL OR o.hs_code = ''
+            OR o.hs_code !~ '{_HS_CODE_FORMAT_RE}'
+            OR o.partner_code IS NULL OR o.partner_code = ''
+            OR {invalid_cond}
+            OR o.value IS NULL OR o.value <= 0
+        )
+    """)
+
+
+def _log_rejected_trade(
+    engine,
+    log_batch_id: uuid.UUID,
+    full_sync: bool,
+    params: dict,
+    has_invalid_codes: bool,
+) -> int:
+    """BR01/BR02/BR03/BR04/BR06: select + log ods.trade_transaction rows that
+    violate mandatory business rules — these are excluded from
+    nds.trade_transaction by design (see _sql_upsert_trade's WHERE clause).
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(
+            _sql_select_rejected_trade(full_sync, has_invalid_codes), params
+        ).fetchall()
+
+    if not rows:
+        return 0
+
+    by_reason: dict[str, list[dict]] = {}
+    for r in rows:
+        by_reason.setdefault(r.reject_reason, []).append({
+            "ods_id": str(r.ods_id),
+            "year": r.year,
+            "month": r.month,
+            "hs_code": r.hs_code,
+            "partner_code": r.partner_code,
+            "flow_type": r.flow_type,
+            "record_source": r.record_source,
+            "value": r.value,
+            "batch_id": str(r.batch_id) if r.batch_id else None,
+        })
+
+    for reason, reason_rows in by_reason.items():
+        log_reject_records(
+            engine, log_batch_id, process_type=2,
+            source_table="ods.trade_transaction",
+            reject_reason=reason, rows=reason_rows,
+        )
+
+    logger.warning(
+        "Step 6:  %d ods.trade_transaction rows rejected (%s)",
+        len(rows), ", ".join(f"{k}={len(v)}" for k, v in sorted(by_reason.items())),
+    )
+    return len(rows)
 
 
 def _sql_delete_fta_util(full_sync: bool) -> text:
@@ -199,7 +345,7 @@ def _sql_delete_fta_util(full_sync: bool) -> text:
 def _sql_insert_fta_util(full_sync: bool) -> text:
     b = _batch_and(full_sync, alias="tt")
     return text(f"""
-        -- BR09: FTA utilization only counts when the partner AND Vietnam (VNM) are
+        -- BR08: FTA utilization only counts when the partner AND Vietnam (VNM) are
         -- both members of the same FTA — not just any FTA the partner happens to belong to.
         INSERT INTO nds.fta_utilization (trade_id, fta_id)
         SELECT tt.trade_id, fm.fta_id
@@ -458,10 +604,23 @@ def run(batch_id: uuid.UUID | None = None) -> int:
 
     params = _sql_params(full_sync, batch_id) if batch_id else {}
     total = 0
+    total_rejected = 0
+    log_target = log_batch_id or batch_id
 
     try:
+        # BR06: resolve which in-scope partner_code values are not genuine
+        # ISO-3 codes *before* anything else, so the country/product master
+        # upserts and the trade fact upsert can all exclude them consistently.
+        invalid_codes = _find_invalid_country_codes(engine, full_sync, params)
+        has_invalid_codes = bool(invalid_codes)
+        params_bk = (
+            {**params, "invalid_codes": invalid_codes} if has_invalid_codes else params
+        )
+
         with engine.begin() as conn:
-            r = conn.execute(_sql_upsert_countries_trade(full_sync), params)
+            r = conn.execute(
+                _sql_upsert_countries_trade(full_sync, has_invalid_codes), params_bk
+            )
             logger.info("Step 1a: upserted %d country rows (trade partners)", r.rowcount)
             total += r.rowcount
 
@@ -484,8 +643,12 @@ def run(batch_id: uuid.UUID | None = None) -> int:
 
         total += _sync_fta_members(engine, batch_id, full_sync=full_sync)
 
+        total_rejected += _log_rejected_trade(
+            engine, log_target, full_sync, params_bk, has_invalid_codes
+        )
+
         with engine.begin() as conn:
-            r = conn.execute(_sql_upsert_trade(full_sync), params)
+            r = conn.execute(_sql_upsert_trade(full_sync, has_invalid_codes), params_bk)
             logger.info("Step 6:  upserted %d trade_transaction rows", r.rowcount)
             total += r.rowcount
 
@@ -507,7 +670,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         raise
 
     if log_batch_id:
-        complete_batch(engine, log_batch_id, rows_loaded=total)
+        complete_batch(
+            engine, log_batch_id,
+            rows_loaded=total, rows_rejected=total_rejected, rows_upserted=total,
+        )
 
     return total
 
