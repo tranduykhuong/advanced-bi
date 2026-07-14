@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<dataSource>
+    <driver>mondrian.olap4j.MondrianOlap4jDriver</driver>
+    <id>7a1c2b40-0001-11ef-9trade-000000000001</id>
+    <location>jdbc:mondrian:Jdbc=jdbc:postgresql://postgres_dw:5432/bi_dw?currentSchema=dds;Catalog=file:/app/saiku-home/data/Vietnam_Trade_Analysis_Cube.xml;JdbcDrivers=org.postgresql.Driver;JdbcUser=bi_admin;JdbcPassword=change_me_strong_password</location>
+    <name>TradeDW</name>
+    <password>change_me_strong_password</password>
+    <securityenabled>false</securityenabled>
+    <type>OLAP</type>
+    <username>bi_admin</username>
+</dataSource>
