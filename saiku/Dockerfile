@@ -26,6 +26,7 @@ ADD https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-4
 RUN chmod 644 /drivers/postgresql.jar
 COPY Vietnam_Trade_Analysis_Cube.mondrian.xml /opt/saiku-seed/data/Vietnam_Trade_Analysis_Cube.xml
 COPY saiku/tradedw.sds /opt/saiku-seed/datasources/tradedw.sds
+COPY saiku/dashboards /opt/saiku-seed/homes-admin
 COPY saiku/seed-entrypoint.sh /usr/local/bin/seed-entrypoint
 
 RUN chmod +x /usr/local/bin/seed-entrypoint
