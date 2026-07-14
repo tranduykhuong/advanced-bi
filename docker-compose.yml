@@ -155,9 +155,13 @@ services:
     environment:
       # Allow the built-in admin/admin login (evaluation / self-hosted use).
       SAIKU_ALLOW_DEFAULT_ADMIN: "true"
+      # Allow charts/dashboards to fetch aggregated result values. The default
+      # ai.policy "schema-only" blocks AGGREGATED_RESULT_VALUES, so dashboard
+      # charts render an "AI policy does not permit" error.
+      SAIKU_AI_POLICY: "aggregated"
       # Put the PostgreSQL JDBC driver on the JVM boot classpath so Mondrian
       # can load it (java -jar ignores -cp; the fat jar has no lib dir).
-      JAVA_OPTS: "-Xbootclasspath/a:/drivers/postgresql.jar"
+      JAVA_OPTS: "-Xbootclasspath/a:/drivers/postgresql.jar -Dsaiku.ai.policy=aggregated"
     ports:
       - "${SAIKU_PORT:-8080}:8080"
     depends_on:
