@@ -39,8 +39,8 @@ EXPECTED_COLS = [
     "quarter",
     "month",
     "hs_code",
-    "category_chapter",
-    "category_heading",
+    "chapter_name",
+    "heading_name",
     "product_name",
     "partner_code",
     "partner_name",
@@ -50,7 +50,6 @@ EXPECTED_COLS = [
     "value",
     "quantity",
     "unit",
-    "record_source",
     "source_system",
     "batch_id",
     "is_late_arriving",
@@ -300,7 +299,7 @@ def apply_business_rules(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[missing_hs_mask, "hs_code"] = inferred_codes
 
     # Resolve HS
-    df[["hs_code", "category_chapter", "category_heading", "product_name"]] = df[
+    df[["hs_code", "chapter_name", "heading_name", "product_name"]] = df[
         "hs_code"
     ].apply(lambda x: pd.Series(resolve_from_hs_code(x)))
 
@@ -344,14 +343,14 @@ _SQL_SELECT_WATERMARKS = text("""
 # new late-arriving row apart from a routine re-load of an already-known row
 # (extract_stage.py re-extracts stage.* in full on every run, not delta-only).
 _SQL_SELECT_EXISTING_KEYS = text("""
-    SELECT DISTINCT year, month, hs_code, partner_code, flow_type, record_source
+    SELECT DISTINCT year, month, hs_code, partner_code, flow_type, source_system
     FROM ods.trade_transaction
 """)
 
 
 def detect_late_arriving(df: pd.DataFrame, engine) -> pd.DataFrame:
     """Flag rows whose (year, month) is older than the recorded watermark for
-    their record_source AND whose business key has never been loaded into ODS
+    their source_system AND whose business key has never been loaded into ODS
     before — i.e. a genuinely new, backfilled/corrected row arriving after the
     source has already advanced past that period (BR05).
 
@@ -360,13 +359,13 @@ def detect_late_arriving(df: pd.DataFrame, engine) -> pd.DataFrame:
     full every run), not a late arrival — they are never flagged, regardless
     of period, to avoid flooding every full re-run with false positives.
 
-    A record_source with no watermark row yet (first-ever load) is never
+    A source_system with no watermark row yet (first-ever load) is never
     considered late — there is no baseline to compare against.
     """
     df = df.copy()
 
     sources = sorted(
-        s for s in df["record_source"].dropna().astype(str).unique().tolist() if s
+        s for s in df["source_system"].dropna().astype(str).unique().tolist() if s
     )
     if not sources:
         df["is_late_arriving"] = False
@@ -397,22 +396,32 @@ def detect_late_arriving(df: pd.DataFrame, engine) -> pd.DataFrame:
     row_period = pd.to_numeric(df["year"], errors="coerce").fillna(0).astype(
         int
     ) * 100 + pd.to_numeric(df["month"], errors="coerce").fillna(0).astype(int)
-    wm_for_row = df["record_source"].map(watermark_period).fillna(0).astype(int)
+    wm_for_row = df["source_system"].map(watermark_period).fillna(0).astype(int)
     older_than_watermark = row_period < wm_for_row
 
     if older_than_watermark.any():
         with engine.connect() as conn:
             existing_rows = conn.execute(_SQL_SELECT_EXISTING_KEYS).fetchall()
         existing_keys = {
-            (int(r.year), int(r.month), r.hs_code, r.partner_code,
-             bool(r.flow_type), r.record_source)
+            (
+                int(r.year),
+                int(r.month),
+                r.hs_code,
+                r.partner_code,
+                bool(r.flow_type),
+                r.source_system,
+            )
             for r in existing_rows
         }
 
         def _is_new_key(row) -> bool:
             key = (
-                int(row["year"]), int(row["month"]), row["hs_code"],
-                row["partner_code"], bool(row["flow_type"]), row["record_source"],
+                int(row["year"]),
+                int(row["month"]),
+                row["hs_code"],
+                row["partner_code"],
+                bool(row["flow_type"]),
+                row["source_system"],
             )
             return key not in existing_keys
 
@@ -426,7 +435,7 @@ def detect_late_arriving(df: pd.DataFrame, engine) -> pd.DataFrame:
     if n_late:
         logger.info(
             "Late-arriving detection: %d/%d rows flagged (new business key, "
-            "older than their record_source watermark)",
+            "older than their source_system watermark)",
             n_late,
             len(df),
         )

@@ -22,8 +22,8 @@ EXPECTED_COLS = [
     "quarter",
     "month",
     "hs_code",
-    "category_chapter",
-    "category_heading",
+    "chapter_name",
+    "heading_name",
     "product_name",
     "partner_code",
     "partner_name",
@@ -33,7 +33,6 @@ EXPECTED_COLS = [
     "value",
     "quantity",
     "unit",
-    "record_source",
     "source_system",
     "batch_id",
     "is_late_arriving",
@@ -51,8 +50,8 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     quarter             SMALLINT,
     month               SMALLINT NOT NULL,
     hs_code             VARCHAR(8),
-    category_chapter    TEXT,
-    category_heading    TEXT,
+    chapter_name    TEXT,
+    heading_name    TEXT,
     product_name        TEXT,
     partner_code        VARCHAR(3),
     partner_name        TEXT,
@@ -62,9 +61,8 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     value               NUMERIC(18,6),
     quantity            NUMERIC(18,6),
     unit                VARCHAR(20),
-    record_source       VARCHAR(20),
+    source_system       VARCHAR(20) NOT NULL,
 
-    source_system       VARCHAR(50) NOT NULL,
     batch_id            UUID NOT NULL,
     is_late_arriving    BOOLEAN DEFAULT FALSE,
     quality_flags       TEXT[],
@@ -72,16 +70,16 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
 
     CONSTRAINT uq_ods_trade_transaction
-        UNIQUE (year, month, hs_code, partner_code, flow_type, record_source)
+        UNIQUE (year, month, hs_code, partner_code, flow_type, source_system)
 );
 """
 
 
 UPSERT_QUERY = """
     INSERT INTO ods.trade_transaction (
-        year, quarter, month, hs_code, category_chapter, category_heading, product_name,
+        year, quarter, month, hs_code, chapter_name, heading_name, product_name,
         partner_code, partner_name, partner_region, partner_continent,
-        flow_type, value, quantity, unit, record_source, source_system,
+        flow_type, value, quantity, unit, source_system,
         batch_id, is_late_arriving, quality_flags
     ) VALUES %s
     ON CONFLICT ON CONSTRAINT uq_ods_trade_transaction
@@ -102,14 +100,13 @@ UPSERT_QUERY = """
 
         -- Non-key descriptive fields: always overwrite with latest value
         quarter          = excluded.quarter,
-        category_chapter = excluded.category_chapter,
-        category_heading = excluded.category_heading,
+        chapter_name = excluded.chapter_name,
+        heading_name = excluded.heading_name,
         product_name     = excluded.product_name,
         partner_name     = excluded.partner_name,
         partner_region   = excluded.partner_region,
         partner_continent= excluded.partner_continent,
         unit             = excluded.unit,
-        source_system    = excluded.source_system,
         batch_id         = excluded.batch_id,
         is_late_arriving = excluded.is_late_arriving,
         quality_flags    = excluded.quality_flags,
@@ -140,31 +137,31 @@ _SQL_ADVANCE_WATERMARK = text("""
 
 
 def _advance_watermarks(engine, df: pd.DataFrame) -> None:
-    """Advance ods.etl_watermark per record_source to MAX(year, month) loaded
+    """Advance ods.etl_watermark per source_system to MAX(year, month) loaded
     in this batch, so the next run's late-arriving detection (stage_to_ods.py)
     has an up-to-date baseline to compare against.
     """
-    if df.empty or "record_source" not in df.columns:
+    if df.empty or "source_system" not in df.columns:
         return
 
-    tmp = df.dropna(subset=["record_source", "year", "month"]).copy()
+    tmp = df.dropna(subset=["source_system", "year", "month"]).copy()
     if tmp.empty:
         return
 
     tmp["period"] = tmp["year"].astype(int) * 100 + tmp["month"].astype(int)
 
     with engine.begin() as conn:
-        for record_source, grp in tmp.groupby("record_source"):
+        for source_system, grp in tmp.groupby("source_system"):
             max_period = int(grp["period"].max())
             year, month = divmod(max_period, 100)
             conn.execute(
                 _SQL_ADVANCE_WATERMARK,
-                {"source": str(record_source), "yr": year, "mo": month},
+                {"source": str(source_system), "yr": year, "mo": month},
             )
 
     logger.info(
-        "Advanced ods.etl_watermark for record_source(s): %s",
-        sorted(tmp["record_source"].unique().tolist()),
+        "Advanced ods.etl_watermark for source_system(s): %s",
+        sorted(tmp["source_system"].unique().tolist()),
     )
 
 
@@ -221,11 +218,10 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             low_memory=False,
             dtype={
                 "hs_code": str,
-                "category_chapter": str,
-                "category_heading": str,
+                "chapter_name": str,
+                "heading_name": str,
                 "partner_code": str,
                 "unit": str,
-                "record_source": str,
                 "source_system": str,
                 "partner_name": str,
                 "product_name": str,
@@ -251,7 +247,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             "hs_code",
             "partner_code",
             "flow_type",
-            "record_source",
+            "source_system",
         ]
         pre_dedup = len(df)
 
@@ -293,8 +289,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                 row["quarter"],
                 row["month"],
                 row["hs_code"],
-                row["category_chapter"],
-                row["category_heading"],
+                row["chapter_name"],
+                row["heading_name"],
                 row["product_name"],
                 row["partner_code"],
                 row["partner_name"],
@@ -304,7 +300,6 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                 row["value"],
                 row["quantity"],
                 row["unit"],
-                row["record_source"],
                 row["source_system"],
                 row["batch_id"],
                 row["is_late_arriving"],

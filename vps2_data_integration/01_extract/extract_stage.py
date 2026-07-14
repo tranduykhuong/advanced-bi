@@ -70,8 +70,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             primary_value as value,
             qty as quantity,
             qty_unit as unit,
-            'UN_COMTRADE' as record_source,
-            'stage_csv' as source_system
+            'UN_COMTRADE' as source_system
         FROM stage.stage_csv
 
         UNION ALL
@@ -87,8 +86,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             value,
             COALESCE(quantity, 0) as quantity,
             'ton' as unit,
-            'NSO' as record_source,
-            'stage_text' as source_system
+            'NSO' as source_system
         FROM stage.stage_text
 
         UNION ALL
@@ -118,8 +116,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             value_usd_k * 1000 AS value,
             0 AS quantity,
             '' AS unit,
-            'TRADE_MAP' AS record_source,
-            'stage_db' AS source_system
+            'TRADE_MAP' AS source_system
         FROM stage.stage_db
         WHERE product_code IS NOT NULL
           AND UPPER(TRIM(product_code)) != 'TOTAL'

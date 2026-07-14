@@ -5,7 +5,7 @@ Runs in the "ods-nds" phase group, immediately after 02_transform.ods_to_nds.
 
 Why this runs *after* ods_to_nds (not before, as the original placeholder had
 it): ods_to_nds upserts ods.trade_transaction into nds.trade_transaction by
-business key (time, hs_code, partner_code, flow_type, record_source)
+business key (time, hs_code, partner_code, flow_type, source_system)
 regardless of is_late_arriving — so a late-arriving row from the current
 batch is already correctly re-upserted into NDS (and, downstream, DDS via
 nds_to_dds_scd) by the time this handler runs.
@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 
 _SQL_SELECT_LATE = text("""
-    SELECT ods_id, year, month, hs_code, partner_code, flow_type, record_source
+    SELECT ods_id, year, month, hs_code, partner_code, flow_type, source_system
     FROM ods.trade_transaction
     WHERE is_late_arriving = TRUE
     ORDER BY year DESC, month DESC
@@ -122,7 +122,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                         "hs_code": r.hs_code,
                         "partner_code": r.partner_code,
                         "flow_type": r.flow_type,
-                        "record_source": r.record_source,
+                        "source_system": r.source_system,
                     }
                     for r in unresolved_rows
                 ],

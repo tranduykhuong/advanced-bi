@@ -9,7 +9,7 @@
 --   • dds.dim_time is a conformed monthly calendar dimension.
 --   • dds.dim_currency is a conformed currency dimension (seed: VND, USD).
 --   • dds.dim_fta_country is a bridge table replacing the flat text partner_countries.
---   • dds.fact_trade grain: time × product × partner × flow_type × record_source.
+--   • dds.fact_trade grain: time × product × partner × flow_type × source_system.
 --   • dds.fact_exchange_rate grain: rate_date × base_currency × quote_currency.
 --
 -- Source:  nds schema (nds.trade_transaction, nds.country, nds.product,
@@ -273,7 +273,7 @@ COMMENT ON COLUMN dds.fact_exchange_rate.exchange_rate  IS 'Derived vnd_per_usd 
 
 -- ---------------------------------------------------------------------------
 -- dds.fact_trade_transaction  — central star fact table
--- Grain: time × product × partner_country × flow_type × record_source.
+-- Grain: time × product × partner_country × flow_type × source_system.
 -- value_vnd is pre-computed at load time using the month-end exchange rate.
 -- fta_keys stores an array of dim_fta surrogate keys for FTA utilization.
 -- ---------------------------------------------------------------------------
@@ -290,7 +290,7 @@ CREATE TABLE IF NOT EXISTS dds.fact_trade_transaction (
 
     -- Degenerate dimensions / grain attributes
     flow_type       BOOLEAN      NOT NULL,  -- TRUE = Export, FALSE = Import
-    record_source   VARCHAR(20),            -- e.g. 'TRADEMAP', 'COMTRADE', 'NSO'
+    source_system   VARCHAR(20)  NOT NULL,  -- UN_COMTRADE, NSO, TRADE_MAP
 
     -- Measures (USD)
     value           NUMERIC(18,6),          -- trade value in USD
@@ -301,14 +301,13 @@ CREATE TABLE IF NOT EXISTS dds.fact_trade_transaction (
     value_vnd       NUMERIC(18,2),
 
     -- Lineage
-    source_system   VARCHAR(50)  NOT NULL,
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT pk_dds_fact_trade PRIMARY KEY (trade_key),
     CONSTRAINT uq_dds_fact_trade_grain
-        UNIQUE (time_key, product_key, partner_key, flow_type, record_source),
+        UNIQUE (time_key, product_key, partner_key, flow_type, source_system),
     CONSTRAINT fk_dds_fact_trade_time
         FOREIGN KEY (time_key)    REFERENCES dds.dim_time    (time_key),
     CONSTRAINT fk_dds_fact_trade_product
@@ -333,7 +332,7 @@ CREATE INDEX IF NOT EXISTS ix_dds_fact_trade_fta_keys
     ON dds.fact_trade_transaction USING GIN (fta_keys);
 
 COMMENT ON TABLE  dds.fact_trade_transaction IS
-    'Central star fact. Grain: time × product × partner × flow_type × record_source. '
+    'Central star fact. Grain: time × product × partner × flow_type × source_system. '
     'value_vnd pre-computed at ETL load time using month-end VND/USD rate.';
 COMMENT ON COLUMN dds.fact_trade_transaction.flow_type  IS 'TRUE = Export, FALSE = Import.';
 COMMENT ON COLUMN dds.fact_trade_transaction.fta_keys   IS 'Array of dim_fta.fta_key for FTAs utilised in this trade.';

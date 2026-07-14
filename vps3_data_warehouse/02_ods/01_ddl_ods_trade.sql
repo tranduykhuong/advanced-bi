@@ -6,7 +6,9 @@
 --   • Typed columns — data promoted from stg after cleansing.
 --   • Natural business keys preserved; no surrogate keys yet.
 --   • One row per source system event — deduplicated on grain key.
---   • batch_id (UUID) and source_system provide full lineage back to stage.
+--   • batch_id (UUID) provides full lineage back to stage.
+--   • source_system identifies the data provider (UN_COMTRADE / NSO / TRADE_MAP
+--     for trade_transaction; APTIAD / FRANKFURTER for fta / exchange_rate).
 --
 -- TODO: Finalize column types once stg schema is locked.
 --       Unique constraint grain must match the ETL dedup key.
@@ -24,8 +26,8 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     quarter             SMALLINT,
     month               SMALLINT NOT NULL,
     hs_code             VARCHAR(8),
-    category_chapter    TEXT,
-    category_heading    TEXT,
+    chapter_name    TEXT,
+    heading_name    TEXT,
     product_name        TEXT,
     partner_code        VARCHAR(3),
     partner_name        TEXT,
@@ -35,18 +37,17 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     value               NUMERIC(18,6),               -- USD
     quantity            NUMERIC(18,6),
     unit                VARCHAR(20),                 -- ton, kg, ...
-    record_source       VARCHAR(20),                 -- UN_COMTRADE, NSO, TRADE_MAP
-    
+    source_system       VARCHAR(20) NOT NULL,        -- UN_COMTRADE, NSO, TRADE_MAP
+
     -- Lineage & Quality
-    source_system       VARCHAR(50) NOT NULL,
     batch_id            UUID NOT NULL,
     is_late_arriving    BOOLEAN DEFAULT FALSE,
     quality_flags       TEXT[],                      -- array of flags
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
-    
-    CONSTRAINT uq_ods_trade_transaction 
-        UNIQUE (year, month, hs_code, partner_code, flow_type, record_source)
+
+    CONSTRAINT uq_ods_trade_transaction
+        UNIQUE (year, month, hs_code, partner_code, flow_type, source_system)
 );
 
 -- ============================================================================

@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS nds.country (
 CREATE TABLE IF NOT EXISTS nds.product (
     hs_code           VARCHAR(8)   NOT NULL,
     hs_version        VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
-    category_chapter  TEXT,
-    category_heading  TEXT,
+    chapter_name  TEXT,
+    heading_name  TEXT,
     product_name      TEXT,
 
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -118,10 +118,9 @@ CREATE TABLE IF NOT EXISTS nds.trade_transaction (
     value             NUMERIC(18,6),
     quantity          NUMERIC(18,6),
     unit              VARCHAR(20),
-    record_source     VARCHAR(20),
+    source_system     VARCHAR(20)    NOT NULL,   -- UN_COMTRADE, NSO, TRADE_MAP
 
     -- Lineage
-    source_system     VARCHAR(50)    NOT NULL,
     batch_id          UUID           NOT NULL,
     is_late_arriving  BOOLEAN        NOT NULL DEFAULT FALSE,
     ods_id            UUID,
@@ -131,7 +130,7 @@ CREATE TABLE IF NOT EXISTS nds.trade_transaction (
 
     CONSTRAINT pk_nds_trade_transaction PRIMARY KEY (trade_id),
     CONSTRAINT uq_nds_trade_transaction_grain UNIQUE (
-        time_id, hs_code, hs_version, partner_code, flow_type, record_source
+        time_id, hs_code, hs_version, partner_code, flow_type, source_system
     ),
     CONSTRAINT chk_nds_trade_flow_type
         CHECK (flow_type IN ('Export', 'Import')),

@@ -293,19 +293,18 @@ CREATE TABLE IF NOT EXISTS dds.fact_trade_transaction (
     partner_key     BIGINT       NOT NULL,
     fta_keys        INTEGER[],
     flow_type       BOOLEAN      NOT NULL,
-    record_source   VARCHAR(20),
+    source_system   VARCHAR(20)  NOT NULL,
     value           NUMERIC(18,6),
     quantity        NUMERIC(18,6),
     unit            VARCHAR(20),
     value_vnd       NUMERIC(18,2),
-    source_system   VARCHAR(50)  NOT NULL,
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT pk_dds_fact_trade PRIMARY KEY (trade_key),
     CONSTRAINT uq_dds_fact_trade_grain
-        UNIQUE (time_key, product_key, partner_key, flow_type, record_source),
+        UNIQUE (time_key, product_key, partner_key, flow_type, source_system),
     CONSTRAINT fk_dds_fact_trade_time
         FOREIGN KEY (time_key)    REFERENCES dds.dim_time    (time_key),
     CONSTRAINT fk_dds_fact_trade_product
@@ -330,7 +329,7 @@ CREATE INDEX IF NOT EXISTS ix_dds_fact_trade_fta_keys
     ON dds.fact_trade_transaction USING GIN (fta_keys);
 
 COMMENT ON TABLE  dds.fact_trade_transaction IS
-    'Central star fact. Grain: time × product × partner × flow_type × record_source. '
+    'Central star fact. Grain: time × product × partner × flow_type × source_system. '
     'value_vnd pre-computed at ETL load time using month-end VND/USD rate.';
 COMMENT ON COLUMN dds.fact_trade_transaction.flow_type IS 'TRUE = Export, FALSE = Import.';
 COMMENT ON COLUMN dds.fact_trade_transaction.fta_keys  IS 'Array of dim_fta.fta_key for FTAs utilised in this trade.';

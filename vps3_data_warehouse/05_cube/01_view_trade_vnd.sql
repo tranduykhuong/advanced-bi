@@ -57,7 +57,7 @@ SELECT
     p.hs_code,
     LEFT(p.hs_code, 2) AS hs_chapter,
     LEFT(p.hs_code, 4) AS hs_heading,
-    p.category_heading,
+    p.heading_name,
     p.product_name,
 
     -- Partner country
@@ -68,7 +68,7 @@ SELECT
 
     -- Trade flow
     tr.flow_type,
-    tr.record_source,
+    tr.source_system,
 
     -- Original USD value
     tr.value          AS trade_value_usd,
@@ -84,7 +84,6 @@ SELECT
     END               AS trade_value_vnd,
 
     -- Lineage
-    tr.source_system,
     tr.is_late_arriving,
     tr.trade_id
 
