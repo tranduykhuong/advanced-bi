@@ -39,8 +39,8 @@ EXPECTED_COLS = [
     "quarter",
     "month",
     "hs_code",
-    "category_chapter",
-    "category_heading",
+    "chapter_name",
+    "heading_name",
     "product_name",
     "partner_code",
     "partner_name",
@@ -300,7 +300,7 @@ def apply_business_rules(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[missing_hs_mask, "hs_code"] = inferred_codes
 
     # Resolve HS
-    df[["hs_code", "category_chapter", "category_heading", "product_name"]] = df[
+    df[["hs_code", "chapter_name", "heading_name", "product_name"]] = df[
         "hs_code"
     ].apply(lambda x: pd.Series(resolve_from_hs_code(x)))
 
@@ -404,15 +404,25 @@ def detect_late_arriving(df: pd.DataFrame, engine) -> pd.DataFrame:
         with engine.connect() as conn:
             existing_rows = conn.execute(_SQL_SELECT_EXISTING_KEYS).fetchall()
         existing_keys = {
-            (int(r.year), int(r.month), r.hs_code, r.partner_code,
-             bool(r.flow_type), r.record_source)
+            (
+                int(r.year),
+                int(r.month),
+                r.hs_code,
+                r.partner_code,
+                bool(r.flow_type),
+                r.record_source,
+            )
             for r in existing_rows
         }
 
         def _is_new_key(row) -> bool:
             key = (
-                int(row["year"]), int(row["month"]), row["hs_code"],
-                row["partner_code"], bool(row["flow_type"]), row["record_source"],
+                int(row["year"]),
+                int(row["month"]),
+                row["hs_code"],
+                row["partner_code"],
+                bool(row["flow_type"]),
+                row["record_source"],
             )
             return key not in existing_keys
 

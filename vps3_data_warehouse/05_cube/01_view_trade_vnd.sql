@@ -57,7 +57,7 @@ SELECT
     p.hs_code,
     LEFT(p.hs_code, 2) AS hs_chapter,
     LEFT(p.hs_code, 4) AS hs_heading,
-    p.category_heading,
+    p.heading_name,
     p.product_name,
 
     -- Partner country

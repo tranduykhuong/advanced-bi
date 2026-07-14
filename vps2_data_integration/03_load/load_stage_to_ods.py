@@ -22,8 +22,8 @@ EXPECTED_COLS = [
     "quarter",
     "month",
     "hs_code",
-    "category_chapter",
-    "category_heading",
+    "chapter_name",
+    "heading_name",
     "product_name",
     "partner_code",
     "partner_name",
@@ -51,8 +51,8 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     quarter             SMALLINT,
     month               SMALLINT NOT NULL,
     hs_code             VARCHAR(8),
-    category_chapter    TEXT,
-    category_heading    TEXT,
+    chapter_name    TEXT,
+    heading_name    TEXT,
     product_name        TEXT,
     partner_code        VARCHAR(3),
     partner_name        TEXT,
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
 
 UPSERT_QUERY = """
     INSERT INTO ods.trade_transaction (
-        year, quarter, month, hs_code, category_chapter, category_heading, product_name,
+        year, quarter, month, hs_code, chapter_name, heading_name, product_name,
         partner_code, partner_name, partner_region, partner_continent,
         flow_type, value, quantity, unit, record_source, source_system,
         batch_id, is_late_arriving, quality_flags
@@ -102,8 +102,8 @@ UPSERT_QUERY = """
 
         -- Non-key descriptive fields: always overwrite with latest value
         quarter          = excluded.quarter,
-        category_chapter = excluded.category_chapter,
-        category_heading = excluded.category_heading,
+        chapter_name = excluded.chapter_name,
+        heading_name = excluded.heading_name,
         product_name     = excluded.product_name,
         partner_name     = excluded.partner_name,
         partner_region   = excluded.partner_region,
@@ -221,8 +221,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             low_memory=False,
             dtype={
                 "hs_code": str,
-                "category_chapter": str,
-                "category_heading": str,
+                "chapter_name": str,
+                "heading_name": str,
                 "partner_code": str,
                 "unit": str,
                 "record_source": str,
@@ -293,8 +293,8 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                 row["quarter"],
                 row["month"],
                 row["hs_code"],
-                row["category_chapter"],
-                row["category_heading"],
+                row["chapter_name"],
+                row["heading_name"],
                 row["product_name"],
                 row["partner_code"],
                 row["partner_name"],

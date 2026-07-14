@@ -97,7 +97,8 @@ def _find_invalid_country_codes(engine, full_sync: bool, params: dict) -> list[s
         logger.warning(
             "BR06: %d partner_code value(s) are not valid ISO-3166-1 alpha-3 "
             "codes and will be rejected: %s",
-            len(invalid), invalid,
+            len(invalid),
+            invalid,
         )
     return invalid
 
@@ -131,12 +132,12 @@ def _sql_upsert_countries_trade(full_sync: bool, has_invalid_codes: bool) -> tex
 def _sql_upsert_products(full_sync: bool) -> text:
     b = _batch_and(full_sync)
     return text(f"""
-        INSERT INTO nds.product (hs_code, hs_version, category_chapter, category_heading, product_name)
+        INSERT INTO nds.product (hs_code, hs_version, chapter_name, heading_name, product_name)
         SELECT DISTINCT ON (hs_code)
             hs_code,
             'HS2017'         AS hs_version,
-            category_chapter,
-            category_heading,
+            chapter_name,
+            heading_name,
             product_name
         FROM ods.trade_transaction
         WHERE {b}hs_code IS NOT NULL
@@ -144,8 +145,8 @@ def _sql_upsert_products(full_sync: bool) -> text:
           AND hs_code ~ '{_HS_CODE_FORMAT_RE}'
         ORDER BY hs_code, product_name NULLS LAST
         ON CONFLICT (hs_code, hs_version) DO UPDATE SET
-            category_chapter = COALESCE(EXCLUDED.category_chapter, nds.product.category_chapter),
-            category_heading = COALESCE(EXCLUDED.category_heading, nds.product.category_heading),
+            chapter_name = COALESCE(EXCLUDED.chapter_name, nds.product.chapter_name),
+            heading_name = COALESCE(EXCLUDED.heading_name, nds.product.heading_name),
             product_name     = COALESCE(EXCLUDED.product_name,     nds.product.product_name),
             updated_at       = NOW()
     """)
@@ -305,28 +306,34 @@ def _log_rejected_trade(
 
     by_reason: dict[str, list[dict]] = {}
     for r in rows:
-        by_reason.setdefault(r.reject_reason, []).append({
-            "ods_id": str(r.ods_id),
-            "year": r.year,
-            "month": r.month,
-            "hs_code": r.hs_code,
-            "partner_code": r.partner_code,
-            "flow_type": r.flow_type,
-            "record_source": r.record_source,
-            "value": r.value,
-            "batch_id": str(r.batch_id) if r.batch_id else None,
-        })
+        by_reason.setdefault(r.reject_reason, []).append(
+            {
+                "ods_id": str(r.ods_id),
+                "year": r.year,
+                "month": r.month,
+                "hs_code": r.hs_code,
+                "partner_code": r.partner_code,
+                "flow_type": r.flow_type,
+                "record_source": r.record_source,
+                "value": r.value,
+                "batch_id": str(r.batch_id) if r.batch_id else None,
+            }
+        )
 
     for reason, reason_rows in by_reason.items():
         log_reject_records(
-            engine, log_batch_id, process_type=2,
+            engine,
+            log_batch_id,
+            process_type=2,
             source_table="ods.trade_transaction",
-            reject_reason=reason, rows=reason_rows,
+            reject_reason=reason,
+            rows=reason_rows,
         )
 
     logger.warning(
         "Step 6:  %d ods.trade_transaction rows rejected (%s)",
-        len(rows), ", ".join(f"{k}={len(v)}" for k, v in sorted(by_reason.items())),
+        len(rows),
+        ", ".join(f"{k}={len(v)}" for k, v in sorted(by_reason.items())),
     )
     return len(rows)
 
@@ -385,7 +392,7 @@ def _upsert_countries_from_fta_members(
                 raw = ast.literal_eval(raw)
             except Exception:
                 raw = [m.strip() for m in raw.split(";") if m.strip()]
-        for member_name in (raw or []):
+        for member_name in raw or []:
             if not member_name or not str(member_name).strip():
                 continue
             iso3, region, continent, _ = resolve_from_country_name(str(member_name))
@@ -426,9 +433,7 @@ def _upsert_countries_from_fta_members(
 # ---------------------------------------------------------------------------
 # Step 5: nds.fta_member — DELETE + re-INSERT resolved members
 # ---------------------------------------------------------------------------
-def _sync_fta_members(
-    engine, batch_id: uuid.UUID | None, *, full_sync: bool
-) -> int:
+def _sync_fta_members(engine, batch_id: uuid.UUID | None, *, full_sync: bool) -> int:
     b = _batch_and(full_sync)
     fetch_sql = text(f"""
         SELECT fta_id, member_countries
@@ -449,7 +454,9 @@ def _sync_fta_members(
         with engine.begin() as conn:
             conn.execute(delete_sql)
     else:
-        delete_sql = text("DELETE FROM nds.fta_member WHERE fta_id = ANY(CAST(:ids AS uuid[]))")
+        delete_sql = text(
+            "DELETE FROM nds.fta_member WHERE fta_id = ANY(CAST(:ids AS uuid[]))"
+        )
         with engine.begin() as conn:
             conn.execute(delete_sql, {"ids": fta_ids})
 
@@ -462,7 +469,7 @@ def _sync_fta_members(
                 raw = ast.literal_eval(raw)
             except Exception:
                 raw = [m.strip() for m in raw.split(";") if m.strip()]
-        for member_name in (raw or []):
+        for member_name in raw or []:
             if not member_name or not str(member_name).strip():
                 continue
             iso3, _, _, _ = resolve_from_country_name(str(member_name))
@@ -532,9 +539,7 @@ def _sql_upsert_exchange_rate(full_sync: bool) -> text:
     """)
 
 
-def _sync_exchange_rate(
-    engine, batch_id: uuid.UUID | None, *, full_sync: bool
-) -> int:
+def _sync_exchange_rate(engine, batch_id: uuid.UUID | None, *, full_sync: bool) -> int:
     # Seed currency dimension first (idempotent)
     with engine.begin() as conn:
         conn.execute(_SQL_SEED_CURRENCY, _CURRENCY_SEED)
@@ -543,23 +548,23 @@ def _sync_exchange_rate(
     params = _sql_params(full_sync, batch_id) if batch_id else {}
     with engine.begin() as conn:
         r = conn.execute(_sql_upsert_exchange_rate(full_sync), params)
-    logger.info("Step 8-9: seeded currencies; upserted %d exchange_rate rows", r.rowcount)
+    logger.info(
+        "Step 8-9: seeded currencies; upserted %d exchange_rate rows", r.rowcount
+    )
     return r.rowcount
 
 
 # ---------------------------------------------------------------------------
 # Sanity check after load
 # ---------------------------------------------------------------------------
-def _log_sanity_counts(
-    engine, batch_id: uuid.UUID | None, *, full_sync: bool
-) -> None:
+def _log_sanity_counts(engine, batch_id: uuid.UUID | None, *, full_sync: bool) -> None:
     checks: dict[str, str] = {
-        "nds.country":       "SELECT COUNT(*) FROM nds.country",
-        "nds.product":       "SELECT COUNT(*) FROM nds.product",
-        "nds.time":          "SELECT COUNT(*) FROM nds.time",
-        "nds.fta":           "SELECT COUNT(*) FROM nds.fta",
-        "nds.fta_member":    "SELECT COUNT(*) FROM nds.fta_member",
-        "nds.currency":      "SELECT COUNT(*) FROM nds.currency",
+        "nds.country": "SELECT COUNT(*) FROM nds.country",
+        "nds.product": "SELECT COUNT(*) FROM nds.product",
+        "nds.time": "SELECT COUNT(*) FROM nds.time",
+        "nds.fta": "SELECT COUNT(*) FROM nds.fta",
+        "nds.fta_member": "SELECT COUNT(*) FROM nds.fta_member",
+        "nds.currency": "SELECT COUNT(*) FROM nds.currency",
         "nds.exchange_rate": "SELECT COUNT(*) FROM nds.exchange_rate",
     }
     if full_sync:
@@ -621,7 +626,9 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             r = conn.execute(
                 _sql_upsert_countries_trade(full_sync, has_invalid_codes), params_bk
             )
-            logger.info("Step 1a: upserted %d country rows (trade partners)", r.rowcount)
+            logger.info(
+                "Step 1a: upserted %d country rows (trade partners)", r.rowcount
+            )
             total += r.rowcount
 
         total += _upsert_countries_from_fta_members(
@@ -653,7 +660,9 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             total += r.rowcount
 
             d = conn.execute(_sql_delete_fta_util(full_sync), params)
-            logger.info("Step 7:  deleted %d fta_utilization rows (pre-insert)", d.rowcount)
+            logger.info(
+                "Step 7:  deleted %d fta_utilization rows (pre-insert)", d.rowcount
+            )
             r = conn.execute(_sql_insert_fta_util(full_sync), params)
             logger.info("Step 7:  inserted %d fta_utilization rows", r.rowcount)
             total += r.rowcount
@@ -666,13 +675,18 @@ def run(batch_id: uuid.UUID | None = None) -> int:
     except Exception as exc:
         logger.exception("ods_to_nds failed")
         if log_batch_id:
-            complete_batch(engine, log_batch_id, status="FAILED", error_message=str(exc))
+            complete_batch(
+                engine, log_batch_id, status="FAILED", error_message=str(exc)
+            )
         raise
 
     if log_batch_id:
         complete_batch(
-            engine, log_batch_id,
-            rows_loaded=total, rows_rejected=total_rejected, rows_upserted=total,
+            engine,
+            log_batch_id,
+            rows_loaded=total,
+            rows_rejected=total_rejected,
+            rows_upserted=total,
         )
 
     return total

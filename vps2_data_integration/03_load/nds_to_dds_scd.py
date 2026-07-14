@@ -43,6 +43,7 @@ logger = get_logger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _batch_and(full_sync: bool, alias: str = "") -> str:
     """Return SQL fragment ``<alias.>batch_id = :batch_id AND `` or '' for full."""
     if full_sync:
@@ -191,17 +192,24 @@ def _load_dim_country(engine, batch_id: uuid.UUID | None) -> int:
     for row in changed:
         with engine.begin() as conn:
             conn.execute(_SQL_EXPIRE_COUNTRY, {"country_key": row.country_key})
-            new_key = conn.execute(_SQL_INSERT_COUNTRY_VERSION, {
-                "country_code": row.country_code,
-                "country_name": row.country_name,
-                "continent":    row.continent,
-                "region":       row.region,
-                "version":      row.version + 1,
-                "batch_id":     batch_id_str,
-            }).scalar_one()
-            conn.execute(_SQL_REPOINT_FACT_PARTNER, {
-                "old_key": row.country_key, "new_key": new_key,
-            })
+            new_key = conn.execute(
+                _SQL_INSERT_COUNTRY_VERSION,
+                {
+                    "country_code": row.country_code,
+                    "country_name": row.country_name,
+                    "continent": row.continent,
+                    "region": row.region,
+                    "version": row.version + 1,
+                    "batch_id": batch_id_str,
+                },
+            ).scalar_one()
+            conn.execute(
+                _SQL_REPOINT_FACT_PARTNER,
+                {
+                    "old_key": row.country_key,
+                    "new_key": new_key,
+                },
+            )
         updated += 1
 
     logger.info("Step 3:  dim_country — SCD2 expired+versioned %d countries", updated)
@@ -226,8 +234,8 @@ _SQL_INSERT_NEW_PRODUCTS = text("""
         p.hs_version,
         LEFT(p.hs_code, 2)  AS hs_chapter,
         LEFT(p.hs_code, 4)  AS hs_heading,
-        p.category_chapter  AS chapter_name,
-        p.category_heading  AS heading_name,
+        p.chapter_name  AS chapter_name,
+        p.heading_name  AS heading_name,
         p.product_name,
         TRUE,
         1,
@@ -246,8 +254,8 @@ _SQL_FIND_CHANGED_PRODUCTS = text("""
         d.version,
         p.hs_code,
         p.hs_version,
-        p.category_chapter AS chapter_name,
-        p.category_heading AS heading_name,
+        p.chapter_name AS chapter_name,
+        p.heading_name AS heading_name,
         p.product_name
     FROM nds.product p
     JOIN dds.dim_product d
@@ -255,8 +263,8 @@ _SQL_FIND_CHANGED_PRODUCTS = text("""
        AND d.hs_version = p.hs_version
        AND d.is_current = TRUE
     WHERE
-        COALESCE(p.category_chapter, '') <> COALESCE(d.chapter_name, '')
-     OR COALESCE(p.category_heading, '') <> COALESCE(d.heading_name, '')
+        COALESCE(p.chapter_name, '') <> COALESCE(d.chapter_name, '')
+     OR COALESCE(p.heading_name, '') <> COALESCE(d.heading_name, '')
      OR COALESCE(p.product_name,     '') <> COALESCE(d.product_name, '')
 """)
 
@@ -299,18 +307,25 @@ def _load_dim_product(engine, batch_id: uuid.UUID | None) -> int:
     for row in changed:
         with engine.begin() as conn:
             conn.execute(_SQL_EXPIRE_PRODUCT, {"product_key": row.product_key})
-            new_key = conn.execute(_SQL_INSERT_PRODUCT_VERSION, {
-                "hs_code":      row.hs_code,
-                "hs_version":   row.hs_version,
-                "chapter_name": row.chapter_name,
-                "heading_name": row.heading_name,
-                "product_name": row.product_name,
-                "version":      row.version + 1,
-                "batch_id":     batch_id_str,
-            }).scalar_one()
-            conn.execute(_SQL_REPOINT_FACT_PRODUCT, {
-                "old_key": row.product_key, "new_key": new_key,
-            })
+            new_key = conn.execute(
+                _SQL_INSERT_PRODUCT_VERSION,
+                {
+                    "hs_code": row.hs_code,
+                    "hs_version": row.hs_version,
+                    "chapter_name": row.chapter_name,
+                    "heading_name": row.heading_name,
+                    "product_name": row.product_name,
+                    "version": row.version + 1,
+                    "batch_id": batch_id_str,
+                },
+            ).scalar_one()
+            conn.execute(
+                _SQL_REPOINT_FACT_PRODUCT,
+                {
+                    "old_key": row.product_key,
+                    "new_key": new_key,
+                },
+            )
         updated += 1
 
     logger.info("Step 4:  dim_product — SCD2 expired+versioned %d products", updated)
@@ -406,20 +421,27 @@ def _load_dim_fta(engine, batch_id: uuid.UUID | None) -> int:
     for row in changed:
         with engine.begin() as conn:
             conn.execute(_SQL_EXPIRE_FTA, {"fta_key": row.fta_key})
-            new_key = conn.execute(_SQL_INSERT_FTA_VERSION, {
-                "fta_bk":           row.fta_bk,
-                "fta_name":         row.fta_name,
-                "fta_code":         row.fta_code,
-                "agreement_type":   row.agreement_type,
-                "scope":            row.scope,
-                "enforcement_year": row.enforcement_year,
-                "status":           row.status,
-                "version":          row.version + 1,
-                "batch_id":         batch_id_str,
-            }).scalar_one()
-            conn.execute(_SQL_REPOINT_FACT_FTA, {
-                "old_key": row.fta_key, "new_key": new_key,
-            })
+            new_key = conn.execute(
+                _SQL_INSERT_FTA_VERSION,
+                {
+                    "fta_bk": row.fta_bk,
+                    "fta_name": row.fta_name,
+                    "fta_code": row.fta_code,
+                    "agreement_type": row.agreement_type,
+                    "scope": row.scope,
+                    "enforcement_year": row.enforcement_year,
+                    "status": row.status,
+                    "version": row.version + 1,
+                    "batch_id": batch_id_str,
+                },
+            ).scalar_one()
+            conn.execute(
+                _SQL_REPOINT_FACT_FTA,
+                {
+                    "old_key": row.fta_key,
+                    "new_key": new_key,
+                },
+            )
         updated += 1
 
     logger.info("Step 5:  dim_fta — SCD2 expired+versioned %d FTAs", updated)
@@ -631,28 +653,34 @@ def _log_rejected_fact_trade(engine, log_batch_id: uuid.UUID) -> int:
 
     by_reason: dict[str, list[dict]] = {}
     for r in rows:
-        by_reason.setdefault(r.reject_reason, []).append({
-            "trade_id": str(r.trade_id),
-            "year": r.year,
-            "month": r.month,
-            "hs_code": r.hs_code,
-            "hs_version": r.hs_version,
-            "partner_code": r.partner_code,
-            "flow_type": r.flow_type,
-            "record_source": r.record_source,
-            "batch_id": str(r.batch_id) if r.batch_id else None,
-        })
+        by_reason.setdefault(r.reject_reason, []).append(
+            {
+                "trade_id": str(r.trade_id),
+                "year": r.year,
+                "month": r.month,
+                "hs_code": r.hs_code,
+                "hs_version": r.hs_version,
+                "partner_code": r.partner_code,
+                "flow_type": r.flow_type,
+                "record_source": r.record_source,
+                "batch_id": str(r.batch_id) if r.batch_id else None,
+            }
+        )
 
     for reason, reason_rows in by_reason.items():
         log_reject_records(
-            engine, log_batch_id, process_type=3,
+            engine,
+            log_batch_id,
+            process_type=3,
             source_table="nds.trade_transaction",
-            reject_reason=reason, rows=reason_rows,
+            reject_reason=reason,
+            rows=reason_rows,
         )
 
     logger.warning(
         "Step 8:  %d nds.trade_transaction rows rejected (%s)",
-        len(rows), ", ".join(f"{k}={len(v)}" for k, v in sorted(by_reason.items())),
+        len(rows),
+        ", ".join(f"{k}={len(v)}" for k, v in sorted(by_reason.items())),
     )
     return len(rows)
 
@@ -662,13 +690,13 @@ def _log_rejected_fact_trade(engine, log_batch_id: uuid.UUID) -> int:
 # ---------------------------------------------------------------------------
 def _log_sanity_counts(engine) -> None:
     checks = {
-        "dds.dim_time":              "SELECT COUNT(*) FROM dds.dim_time",
-        "dds.dim_currency":          "SELECT COUNT(*) FROM dds.dim_currency",
+        "dds.dim_time": "SELECT COUNT(*) FROM dds.dim_time",
+        "dds.dim_currency": "SELECT COUNT(*) FROM dds.dim_currency",
         "dds.dim_country (current)": "SELECT COUNT(*) FROM dds.dim_country WHERE is_current = TRUE",
-        "dds.dim_product":           "SELECT COUNT(*) FROM dds.dim_product",
-        "dds.dim_fta":               "SELECT COUNT(*) FROM dds.dim_fta",
-        "dds.dim_fta_country":       "SELECT COUNT(*) FROM dds.dim_fta_country",
-        "dds.fact_exchange_rate":    "SELECT COUNT(*) FROM dds.fact_exchange_rate",
+        "dds.dim_product": "SELECT COUNT(*) FROM dds.dim_product",
+        "dds.dim_fta": "SELECT COUNT(*) FROM dds.dim_fta",
+        "dds.dim_fta_country": "SELECT COUNT(*) FROM dds.dim_fta_country",
+        "dds.fact_exchange_rate": "SELECT COUNT(*) FROM dds.fact_exchange_rate",
         "dds.fact_trade_transaction": "SELECT COUNT(*) FROM dds.fact_trade_transaction",
     }
     with engine.connect() as conn:
@@ -719,13 +747,18 @@ def run(batch_id: uuid.UUID | None = None) -> int:
     except Exception as exc:
         logger.exception("nds_to_dds_scd failed")
         if log_batch_id:
-            complete_batch(engine, log_batch_id, status="FAILED", error_message=str(exc))
+            complete_batch(
+                engine, log_batch_id, status="FAILED", error_message=str(exc)
+            )
         raise
 
     if log_batch_id:
         complete_batch(
-            engine, log_batch_id,
-            rows_loaded=total, rows_rejected=total_rejected, rows_upserted=total,
+            engine,
+            log_batch_id,
+            rows_loaded=total,
+            rows_rejected=total_rejected,
+            rows_upserted=total,
         )
 
     return total

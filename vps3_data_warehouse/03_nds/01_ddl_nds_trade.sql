@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS nds.country (
 CREATE TABLE IF NOT EXISTS nds.product (
     hs_code           VARCHAR(8)   NOT NULL,
     hs_version        VARCHAR(10)  NOT NULL DEFAULT 'HS2017',
-    category_chapter  TEXT,
-    category_heading  TEXT,
+    chapter_name  TEXT,
+    heading_name  TEXT,
     product_name      TEXT,
 
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
