@@ -70,13 +70,23 @@ python ingest_trademap.py \
 
 Script hỗ trợ `--trade-dir` để tự quét file trong thư mục.
 
-Ví dụ folder `vps1_data_sources/raw_data/trademap_exports/`:
+Ví dụ folder `vps1_data_sources/raw_data/trademap_imports/` (Dữ liệu nhập khẩu của Việt Nam):
 
 ```bash
 python ingest_trademap.py \
   --skip-master \
   --data-dir ../raw_data \
-  --trade-dir trademap_exports
+  --trade-dir trademap_imports
+```
+
+Ví dụ folder `vps1_data_sources/raw_data/trademap_exports/` (Dữ liệu xuất khẩu của Việt Nam):
+
+```bash
+python ingest_trademap.py \
+  --skip-master \
+  --data-dir ../raw_data \
+  --trade-dir trademap_exports \
+  --trade-flow export
 ```
 
 Ghi chú:

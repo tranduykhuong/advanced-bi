@@ -47,8 +47,8 @@ BILATERAL_FILE_PATTERN = re.compile(
 BILATERAL_TITLE_PATTERN = re.compile(
     r"Bilateral trade between\s+(.+?)\s+and\s+(.+?)\s*,*\s*$", re.IGNORECASE
 )
-# Bilateral export files in this project: one exporter country -> Viet Nam (all HS codes + TOTAL).
-BILATERAL_IMPORTER = "Viet Nam"
+# Bilateral files in this project are related to Viet Nam.
+TARGET_COUNTRY = "Viet Nam"
 
 # Trade Map CSV exports are often Windows-1252 or Latin-1, not UTF-8.
 CSV_ENCODINGS = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
@@ -159,15 +159,16 @@ def _infer_bilateral_pair(path: Path) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _load_bilateral_exports_only(
+def _load_bilateral_data(
     path: Path,
     skip_rows: int,
-    target_importer: str = BILATERAL_IMPORTER,
+    target_country: str = TARGET_COUNTRY,
+    trade_flow: str = "import",
 ) -> pd.DataFrame:
     """
-    Parse bilateral Trade Map CSV with 2-row header and keep only
-    "<Exporter>'s exports to Viet Nam" monthly values (per product + TOTAL).
-    Importer is always Viet Nam; exporter is inferred from the file name/title.
+    Parse bilateral Trade Map CSV with 2-row header.
+    If trade_flow == 'import': keeps "<Partner>'s exports to <Target>"
+    If trade_flow == 'export': keeps "<Target>'s exports to <Partner>"
     """
     preview = _read_trademap_csv(path, skiprows=skip_rows, nrows=2, header=None)
     if preview.shape[0] < 2:
@@ -183,9 +184,28 @@ def _load_bilateral_exports_only(
             current_group = value
         header_top.append(current_group)
 
-    exporter_name, _ = _infer_bilateral_pair(path)
-    importer_name = target_importer
-    target_phrase = f"exports to {target_importer}".lower()
+    c1, c2 = _infer_bilateral_pair(path)
+    if not c1 or not c2:
+        raise ValueError(f"Could not infer countries from bilateral file: {path}")
+
+    partner = c1 if c2.lower() == target_country.lower() else c2
+    if c1.lower() != target_country.lower() and c2.lower() != target_country.lower():
+        partner = c1
+
+    if trade_flow == "import":
+        exporter_name = partner
+        importer_name = target_country
+        target_phrases = [
+            f"exports to {target_country}".lower(),
+            f"imports from {partner}".lower(),
+        ]
+    else:
+        exporter_name = target_country
+        importer_name = partner
+        target_phrases = [
+            f"exports to {partner}".lower(),
+            f"imports from {target_country}".lower(),
+        ]
 
     product_code_idx = next(
         (i for i, c in enumerate(header_top) if c.strip().lower() == "product code"),
@@ -198,12 +218,12 @@ def _load_bilateral_exports_only(
     for i, (top, sub) in enumerate(zip(header_top, header_sub)):
         top_norm = _normalize_trademap_text(top).lower()
         sub_norm = str(sub).strip()
-        if target_phrase in top_norm and PERIOD_PATTERN.search(sub_norm):
+        if any(phrase in top_norm for phrase in target_phrases) and PERIOD_PATTERN.search(sub_norm):
             export_value_idxs.append(i)
 
     if not export_value_idxs:
         raise ValueError(
-            f"Could not find monthly columns for '{target_phrase}' in {path}"
+            f"Could not find monthly columns matching {target_phrases} in {path}"
         )
 
     data = _read_trademap_csv(path, skiprows=skip_rows + 2, header=None)
@@ -241,8 +261,8 @@ def _load_bilateral_exports_only(
                 }
             )
 
-    if not exporter_name:
-        raise ValueError(f"Could not infer exporter name from bilateral file: {path}")
+    if not exporter_name or not importer_name:
+        raise ValueError(f"Could not infer countries from bilateral file: {path}")
 
     return pd.DataFrame(rows)
 
@@ -351,6 +371,7 @@ def process_trade_file(
     skip_rows: int | None = None,
     engine: Engine | None = None,
     batch_size: int = 1000,
+    trade_flow: str = "import",
 ) -> int:
     """Read a Trade Map CSV, melt monthly columns, upsert into trade_record."""
     engine = engine or get_engine()
@@ -368,7 +389,7 @@ def process_trade_file(
 
     is_bilateral_file = "Bilateral_trade_between_" in path.name
     if is_bilateral_file:
-        df_long = _load_bilateral_exports_only(path=path, skip_rows=skip_rows)
+        df_long = _load_bilateral_data(path=path, skip_rows=skip_rows, trade_flow=trade_flow)
     else:
         df = _read_trademap_csv(path, skiprows=skip_rows)
         value_cols = [c for c in df.columns if VALUE_COL_PATTERN.search(str(c))]
@@ -446,9 +467,7 @@ def process_trade_file(
 
     country_names: list[str] = []
     if is_bilateral_file:
-        country_names = df_long["exporter_name"].drop_duplicates().tolist() + [
-            BILATERAL_IMPORTER
-        ]
+        country_names = df_long["exporter_name"].drop_duplicates().tolist() + df_long["importer_name"].drop_duplicates().tolist()
     else:
         if default_exporter:
             country_names.append(default_exporter)
@@ -515,6 +534,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--trade-flow",
+        choices=["import", "export"],
+        default="import",
+        help="Direction of bilateral trade data ('import' or 'export')",
+    )
+    parser.add_argument(
         "trade_files",
         nargs="*",
         help="Optional trade CSV paths to process after master data load",
@@ -547,8 +572,13 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("Discovered %d trade files in %s", len(trade_inputs), trade_dir)
 
     if trade_inputs:
+        trade_flow = args.trade_flow
+        if args.trade_dir and trade_flow == "import":
+            if "export" in Path(args.trade_dir).name.lower():
+                trade_flow = "export"
+        
         for fp in trade_inputs:
-            process_trade_file(fp, engine=engine)
+            process_trade_file(fp, engine=engine, trade_flow=trade_flow)
         return
 
     if not args.skip_master and not args.trade_files:

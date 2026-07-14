@@ -117,7 +117,7 @@ export VPS1_DB_USER=trademap_admin
 export VPS1_DB_PASSWORD=<your_password>
 
 # 4. Chạy ingest
-python ingest_trademap.py --data-dir ../raw_data --trade-dir trademap_exports
+python ingest_trademap.py --data-dir ../raw_data --trade-dir trademap_imports
 
 # Kiểm tra
 docker exec postgres_vps1 psql -U trademap_admin -d trademap_db -c \
