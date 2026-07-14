@@ -78,8 +78,7 @@ SELECT
     primary_value as value,
     qty as quantity,
     qty_unit as unit,
-    'UN_COMTRADE' as record_source,
-    'stage_csv' as source_system
+    'UN_COMTRADE' as source_system
 FROM stage.stage_csv
 
 UNION ALL
@@ -88,7 +87,7 @@ SELECT
     year, month,
     NULL as hs_code, goods as product_name,
     NULL as partner_code, country as partner_name,
-    flow_type, value, COALESCE(quantity, 0), 'ton', 'NSO', 'stage_text'
+    flow_type, value, COALESCE(quantity, 0), 'ton', 'NSO'
 FROM stage.stage_text
 
 UNION ALL
@@ -105,7 +104,7 @@ SELECT
         WHEN TRIM(importer_name) ILIKE 'Viet Nam' THEN FALSE
         ELSE TRUE
     END,
-    value_usd_k * 1000, 0, '', 'TRADE_MAP', 'stage_db'
+    value_usd_k * 1000, 0, '', 'TRADE_MAP'
 FROM stage.stage_db
 WHERE product_code IS NOT NULL
   AND UPPER(TRIM(product_code)) != 'TOTAL'

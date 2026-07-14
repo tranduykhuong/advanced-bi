@@ -52,8 +52,7 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     value               NUMERIC(18,6),
     quantity            NUMERIC(18,6),
     unit                VARCHAR(20),
-    record_source       VARCHAR(20),
-    source_system       VARCHAR(50) NOT NULL,
+    source_system       VARCHAR(20) NOT NULL,
     batch_id            UUID NOT NULL,
     is_late_arriving    BOOLEAN DEFAULT FALSE,
     quality_flags       TEXT[],
@@ -61,7 +60,7 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
 
     CONSTRAINT uq_ods_trade_transaction
-        UNIQUE (year, month, hs_code, partner_code, flow_type, record_source)
+        UNIQUE (year, month, hs_code, partner_code, flow_type, source_system)
 );
 ```
 

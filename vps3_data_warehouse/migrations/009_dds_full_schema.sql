@@ -106,7 +106,12 @@ CREATE TABLE IF NOT EXISTS dds.dim_country (
     CONSTRAINT pk_dds_dim_country PRIMARY KEY (country_key)
 );
 
--- Retrofit: earlier revisions of this migration added valid_from/valid_to.
+-- Retrofit: earlier revisions of this migration added valid_from/valid_to,
+-- and some deployments manually added a "_current" convenience view on top
+-- of them that isn't tracked anywhere in this repo. Drop it first so it
+-- doesn't block the column drop below.
+DROP VIEW IF EXISTS dds.dim_country_current;
+
 -- Per the report design, SCD2 here only needs is_current + version.
 ALTER TABLE dds.dim_country
     DROP COLUMN IF EXISTS valid_from,
@@ -157,6 +162,9 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_product_heading
 -- unique index scoped to is_current = TRUE. Drop valid_from/valid_to if an
 -- earlier revision of this migration already added them — per the report
 -- design, SCD2 here only needs is_current + version.
+-- Drop any untracked "_current" convenience view first (see dim_country above).
+DROP VIEW IF EXISTS dds.dim_product_current;
+
 ALTER TABLE dds.dim_product
     DROP COLUMN IF EXISTS valid_from,
     DROP COLUMN IF EXISTS valid_to;
@@ -206,6 +214,9 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_enforcement_year
 -- unique index scoped to is_current = TRUE. Drop valid_from/valid_to if an
 -- earlier revision of this migration already added them — per the report
 -- design, SCD2 here only needs is_current + version.
+-- Drop any untracked "_current" convenience view first (see dim_country above).
+DROP VIEW IF EXISTS dds.dim_fta_current;
+
 ALTER TABLE dds.dim_fta
     DROP COLUMN IF EXISTS valid_from,
     DROP COLUMN IF EXISTS valid_to;

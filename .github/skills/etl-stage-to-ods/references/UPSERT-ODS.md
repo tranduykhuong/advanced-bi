@@ -26,9 +26,9 @@ logger = get_logger(__name__)
 
 TABLE_DDL = """..."""  # see ods-database-design skill
 
-BUSINESS_KEY_COLS = ["year", "month", "hs_code", "partner_code", "flow_type", "record_source"]
+BUSINESS_KEY_COLS = ["year", "month", "hs_code", "partner_code", "flow_type", "source_system"]
 INSERT_COLS = ["year", "quarter", "month", "hs_code", "partner_code", "partner_name",
-               "flow_type", "value", "quantity", "record_source", "source_system", "batch_id", ...]
+               "flow_type", "value", "quantity", "source_system", "batch_id", ...]
 UPDATE_COLS = [c for c in INSERT_COLS if c not in ("source_system",)]
 
 

@@ -32,14 +32,14 @@ Use when asked to design a new ODS table or define a UNIQUE constraint for UPSER
 ## Business Key Design Rules
 
 - Use the source system's natural key when it exists (e.g., `aptiad_no` for FTAs)
-- Include `record_source` when multiple systems contribute to the same table
+- Include `source_system` when multiple systems contribute to the same table
 - Keys must be stable over time — changing keys break UPSERT
 
 **Examples from this project:**
 
 | Table | Business Key | Rationale |
 |-------|-------------|-----------|
-| `ods.trade_transaction` | `(year, month, hs_code, partner_code, flow_type, record_source)` | One record per period + product + partner + direction + source |
+| `ods.trade_transaction` | `(year, month, hs_code, partner_code, flow_type, source_system)` | One record per period + product + partner + direction + source |
 | `ods.fta` | `aptiad_no` | APTIAD's own unique integer ID |
 
 ## Key Rules
