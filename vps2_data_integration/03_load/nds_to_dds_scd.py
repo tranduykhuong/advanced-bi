@@ -12,6 +12,15 @@ Loads data from the Normalized Data Store (NDS) into the Dimensional Data Store
   Step 7:  dds.fact_exchange_rate — daily rate fact (upsert)
   Step 8:  dds.fact_trade_transaction — central star fact (upsert + pre-compute VND)
 
+Late-arriving fact resolution (dim_country/dim_product/dim_fta):
+  Step 8 does NOT join dimensions on is_current = TRUE. It resolves the
+  dimension version whose [effective_date, expiry_date) window covers the
+  trade's own period (first day of its month) — i.e. the version that was
+  true back when the trade happened, not whatever is current today. A new
+  SCD2 version never needs to "repoint" already-loaded fact rows: their
+  period still falls inside the now-expired version's window, so re-running
+  Step 8 leaves them correctly linked to the old version.
+
 Load modes:
   • Full   — batch_id is None: process all NDS rows (safe re-run).
   • Delta  — batch_id provided: process only rows with that batch_id in NDS.
@@ -112,7 +121,7 @@ def _load_dim_currency(engine) -> int:
 _SQL_INSERT_NEW_COUNTRIES = text("""
     INSERT INTO dds.dim_country
         (country_code, country_name, continent, region,
-         is_current, version, batch_id)
+         is_current, version, effective_date, expiry_date, batch_id)
     SELECT
         n.country_code,
         n.country_name,
@@ -120,6 +129,8 @@ _SQL_INSERT_NEW_COUNTRIES = text("""
         n.region,
         TRUE,
         1,
+        DATE '-infinity',
+        DATE 'infinity',
         :batch_id
     FROM nds.country n
     WHERE NOT EXISTS (
@@ -149,30 +160,19 @@ _SQL_FIND_CHANGED_COUNTRIES = text("""
 
 _SQL_EXPIRE_COUNTRY = text("""
     UPDATE dds.dim_country
-    SET is_current = FALSE
+    SET is_current  = FALSE,
+        expiry_date = CURRENT_DATE
     WHERE country_key = :country_key
 """)
 
 _SQL_INSERT_COUNTRY_VERSION = text("""
     INSERT INTO dds.dim_country
         (country_code, country_name, continent, region,
-         is_current, version, batch_id)
+         is_current, version, effective_date, expiry_date, batch_id)
     VALUES
         (:country_code, :country_name, :continent, :region,
-         TRUE, :version, :batch_id)
+         TRUE, :version, CURRENT_DATE, DATE 'infinity', :batch_id)
     RETURNING country_key
-""")
-
-# Repoint fact rows already loaded against the now-expired surrogate key to
-# the new version's key — otherwise the Step 8 upsert (which always joins
-# dim_country ON is_current = TRUE) inserts a *second* fact row under the new
-# key instead of updating the existing one, because partner_key is part of
-# the fact's grain/conflict target. Without this, every SCD2 change would
-# silently duplicate every fact row for that business key.
-_SQL_REPOINT_FACT_PARTNER = text("""
-    UPDATE dds.fact_trade_transaction
-    SET partner_key = :new_key
-    WHERE partner_key = :old_key
 """)
 
 
@@ -192,7 +192,7 @@ def _load_dim_country(engine, batch_id: uuid.UUID | None) -> int:
     for row in changed:
         with engine.begin() as conn:
             conn.execute(_SQL_EXPIRE_COUNTRY, {"country_key": row.country_key})
-            new_key = conn.execute(
+            conn.execute(
                 _SQL_INSERT_COUNTRY_VERSION,
                 {
                     "country_code": row.country_code,
@@ -201,13 +201,6 @@ def _load_dim_country(engine, batch_id: uuid.UUID | None) -> int:
                     "region": row.region,
                     "version": row.version + 1,
                     "batch_id": batch_id_str,
-                },
-            ).scalar_one()
-            conn.execute(
-                _SQL_REPOINT_FACT_PARTNER,
-                {
-                    "old_key": row.country_key,
-                    "new_key": new_key,
                 },
             )
         updated += 1
@@ -228,7 +221,7 @@ def _load_dim_country(engine, batch_id: uuid.UUID | None) -> int:
 _SQL_INSERT_NEW_PRODUCTS = text("""
     INSERT INTO dds.dim_product
         (hs_code, hs_version, hs_chapter, hs_heading, chapter_name, heading_name,
-         product_name, is_current, version, batch_id)
+         product_name, is_current, version, effective_date, expiry_date, batch_id)
     SELECT
         p.hs_code,
         p.hs_version,
@@ -239,6 +232,8 @@ _SQL_INSERT_NEW_PRODUCTS = text("""
         p.product_name,
         TRUE,
         1,
+        DATE '-infinity',
+        DATE 'infinity',
         :batch_id
     FROM nds.product p
     WHERE NOT EXISTS (
@@ -270,26 +265,20 @@ _SQL_FIND_CHANGED_PRODUCTS = text("""
 
 _SQL_EXPIRE_PRODUCT = text("""
     UPDATE dds.dim_product
-    SET is_current = FALSE
+    SET is_current  = FALSE,
+        expiry_date = CURRENT_DATE
     WHERE product_key = :product_key
 """)
 
 _SQL_INSERT_PRODUCT_VERSION = text("""
     INSERT INTO dds.dim_product
         (hs_code, hs_version, hs_chapter, hs_heading, chapter_name, heading_name,
-         product_name, is_current, version, batch_id)
+         product_name, is_current, version, effective_date, expiry_date, batch_id)
     VALUES
         (:hs_code, :hs_version, LEFT(:hs_code, 2), LEFT(:hs_code, 4),
          :chapter_name, :heading_name, :product_name,
-         TRUE, :version, :batch_id)
+         TRUE, :version, CURRENT_DATE, DATE 'infinity', :batch_id)
     RETURNING product_key
-""")
-
-# See _SQL_REPOINT_FACT_PARTNER — same reasoning, for product_key.
-_SQL_REPOINT_FACT_PRODUCT = text("""
-    UPDATE dds.fact_trade_transaction
-    SET product_key = :new_key
-    WHERE product_key = :old_key
 """)
 
 
@@ -307,7 +296,7 @@ def _load_dim_product(engine, batch_id: uuid.UUID | None) -> int:
     for row in changed:
         with engine.begin() as conn:
             conn.execute(_SQL_EXPIRE_PRODUCT, {"product_key": row.product_key})
-            new_key = conn.execute(
+            conn.execute(
                 _SQL_INSERT_PRODUCT_VERSION,
                 {
                     "hs_code": row.hs_code,
@@ -317,13 +306,6 @@ def _load_dim_product(engine, batch_id: uuid.UUID | None) -> int:
                     "product_name": row.product_name,
                     "version": row.version + 1,
                     "batch_id": batch_id_str,
-                },
-            ).scalar_one()
-            conn.execute(
-                _SQL_REPOINT_FACT_PRODUCT,
-                {
-                    "old_key": row.product_key,
-                    "new_key": new_key,
                 },
             )
         updated += 1
@@ -339,7 +321,8 @@ def _load_dim_product(engine, batch_id: uuid.UUID | None) -> int:
 _SQL_INSERT_NEW_FTA = text("""
     INSERT INTO dds.dim_fta
         (fta_bk, fta_name, fta_code, agreement_type, scope,
-         enforcement_year, status, is_current, version, batch_id)
+         enforcement_year, status, is_current, version,
+         effective_date, expiry_date, batch_id)
     SELECT
         f.fta_id                            AS fta_bk,
         f.fta_name,
@@ -350,6 +333,8 @@ _SQL_INSERT_NEW_FTA = text("""
         f.status,
         TRUE,
         1,
+        DATE '-infinity',
+        DATE 'infinity',
         :batch_id
     FROM nds.fta f
     WHERE NOT EXISTS (
@@ -384,26 +369,21 @@ _SQL_FIND_CHANGED_FTA = text("""
 
 _SQL_EXPIRE_FTA = text("""
     UPDATE dds.dim_fta
-    SET is_current = FALSE
+    SET is_current  = FALSE,
+        expiry_date = CURRENT_DATE
     WHERE fta_key = :fta_key
 """)
 
 _SQL_INSERT_FTA_VERSION = text("""
     INSERT INTO dds.dim_fta
         (fta_bk, fta_name, fta_code, agreement_type, scope,
-         enforcement_year, status, is_current, version, batch_id)
+         enforcement_year, status, is_current, version,
+         effective_date, expiry_date, batch_id)
     VALUES
         (:fta_bk, :fta_name, :fta_code, :agreement_type, :scope,
-         :enforcement_year, :status, TRUE, :version, :batch_id)
+         :enforcement_year, :status, TRUE, :version,
+         CURRENT_DATE, DATE 'infinity', :batch_id)
     RETURNING fta_key
-""")
-
-# See _SQL_REPOINT_FACT_PARTNER — fta_keys is an INTEGER[] (a trade can
-# utilise multiple FTAs), so the old key is replaced in place within the array.
-_SQL_REPOINT_FACT_FTA = text("""
-    UPDATE dds.fact_trade_transaction
-    SET fta_keys = array_replace(fta_keys, :old_key, :new_key)
-    WHERE :old_key = ANY(fta_keys)
 """)
 
 
@@ -421,7 +401,7 @@ def _load_dim_fta(engine, batch_id: uuid.UUID | None) -> int:
     for row in changed:
         with engine.begin() as conn:
             conn.execute(_SQL_EXPIRE_FTA, {"fta_key": row.fta_key})
-            new_key = conn.execute(
+            conn.execute(
                 _SQL_INSERT_FTA_VERSION,
                 {
                     "fta_bk": row.fta_bk,
@@ -433,13 +413,6 @@ def _load_dim_fta(engine, batch_id: uuid.UUID | None) -> int:
                     "status": row.status,
                     "version": row.version + 1,
                     "batch_id": batch_id_str,
-                },
-            ).scalar_one()
-            conn.execute(
-                _SQL_REPOINT_FACT_FTA,
-                {
-                    "old_key": row.fta_key,
-                    "new_key": new_key,
                 },
             )
         updated += 1
@@ -552,13 +525,21 @@ _SQL_UPSERT_FACT_TRADE = text("""
           AND fer.quote_currency_key = (SELECT currency_key FROM dds.dim_currency WHERE currency_code = 'USD')
         GROUP BY fer.time_key
     ),
-    -- FTA keys per trade_id (aggregated into int[]) — current version only
+    -- FTA keys per trade_id (aggregated into int[]) — resolved to the dim_fta
+    -- version whose [effective_date, expiry_date) covers the trade's own
+    -- period (first day of its month), i.e. the FTA state as it was known
+    -- at that time, not necessarily today's current version.
     fta_agg AS (
         SELECT
             fu.trade_id,
             ARRAY_AGG(df.fta_key ORDER BY df.fta_key) AS fta_keys
         FROM nds.fta_utilization fu
-        JOIN dds.dim_fta df ON df.fta_bk = fu.fta_id AND df.is_current = TRUE
+        JOIN nds.trade_transaction tt2 ON tt2.trade_id = fu.trade_id
+        JOIN nds.time t2               ON t2.time_id   = tt2.time_id
+        JOIN dds.dim_fta df
+            ON df.fta_bk = fu.fta_id
+           AND make_date(t2.year, t2.month, 1) >= df.effective_date
+           AND make_date(t2.year, t2.month, 1) <  df.expiry_date
         GROUP BY fu.trade_id
     )
     INSERT INTO dds.fact_trade_transaction (
@@ -588,13 +569,20 @@ _SQL_UPSERT_FACT_TRADE = text("""
     JOIN dds.dim_time dt
         ON dt.year  = t.year
        AND dt.month = t.month
+    -- Point-in-time resolution: pick the dim_product/dim_country version
+    -- whose [effective_date, expiry_date) window covers the trade's own
+    -- period, not simply is_current = TRUE. This is what makes a
+    -- late-arriving fact for an old period link to the dimension state
+    -- that was true back then, per the late-arriving-fact technique.
     JOIN dds.dim_product dp
         ON dp.hs_code    = tt.hs_code
        AND dp.hs_version = tt.hs_version
-       AND dp.is_current = TRUE
+       AND make_date(t.year, t.month, 1) >= dp.effective_date
+       AND make_date(t.year, t.month, 1) <  dp.expiry_date
     JOIN dds.dim_country dc
         ON dc.country_code = tt.partner_code
-       AND dc.is_current   = TRUE
+       AND make_date(t.year, t.month, 1) >= dc.effective_date
+       AND make_date(t.year, t.month, 1) <  dc.expiry_date
     LEFT JOIN fta_agg fa
         ON fa.trade_id = tt.trade_id
     LEFT JOIN monthly_fx fx
@@ -629,15 +617,19 @@ _SQL_SELECT_REJECTED_FACT_TRADE = text("""
         tt.trade_id, t.year, t.month, tt.hs_code, tt.hs_version,
         tt.partner_code, tt.flow_type, tt.source_system, tt.batch_id,
         CASE
-            WHEN dp.product_key IS NULL THEN 'product_not_found_in_dds'
-            WHEN dc.country_key IS NULL THEN 'country_not_found_in_dds'
+            WHEN dp.product_key IS NULL THEN 'product_not_found_for_trade_period'
+            WHEN dc.country_key IS NULL THEN 'country_not_found_for_trade_period'
         END AS reject_reason
     FROM nds.trade_transaction tt
     JOIN nds.time t ON t.time_id = tt.time_id
     LEFT JOIN dds.dim_product dp
-        ON dp.hs_code = tt.hs_code AND dp.hs_version = tt.hs_version AND dp.is_current = TRUE
+        ON dp.hs_code = tt.hs_code AND dp.hs_version = tt.hs_version
+       AND make_date(t.year, t.month, 1) >= dp.effective_date
+       AND make_date(t.year, t.month, 1) <  dp.expiry_date
     LEFT JOIN dds.dim_country dc
-        ON dc.country_code = tt.partner_code AND dc.is_current = TRUE
+        ON dc.country_code = tt.partner_code
+       AND make_date(t.year, t.month, 1) >= dc.effective_date
+       AND make_date(t.year, t.month, 1) <  dc.expiry_date
     WHERE dp.product_key IS NULL OR dc.country_key IS NULL
 """)
 

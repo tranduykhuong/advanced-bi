@@ -42,7 +42,6 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
     -- Lineage & Quality
     batch_id            UUID NOT NULL,
     is_late_arriving    BOOLEAN DEFAULT FALSE,
-    quality_flags       TEXT[],                      -- array of flags
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
 

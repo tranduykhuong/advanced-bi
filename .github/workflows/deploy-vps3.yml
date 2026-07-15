@@ -35,59 +35,89 @@ jobs:
         run: |
           ssh-keyscan -H ${{ vars.VPS3_HOST }} >> ~/.ssh/known_hosts
 
+      # SSH to VPS3 occasionally hits a transient "Connection reset by peer"
+      # during key exchange (fail2ban/rate-limit blip, sshd restart, brief
+      # network hiccup) — nothing to do with the deployed code. Every network
+      # step below retries a few times with a short backoff before failing
+      # the job for real.
       - name: Sync vps3_data_warehouse to VPS3
-        run: |
-          rsync -avz --delete \
-            --exclude='.git' \
-            ./vps3_data_warehouse/ \
-            ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/vps3_data_warehouse/
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: |
+            rsync -avz --delete \
+              --exclude='.git' \
+              ./vps3_data_warehouse/ \
+              ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/vps3_data_warehouse/
 
       - name: Sync docker-compose.vps3.yml and write .env on VPS3
+        uses: nick-fields/retry@v3
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-        run: |
-          rsync -avz ./docker-compose.vps3.yml \
-            ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/docker-compose.vps3.yml
-          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} "cat > /opt/bi_dw/.env" <<EOF
-          POSTGRES_DB=bi_dw
-          POSTGRES_USER=bi_admin
-          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-          APP_ENV=production
-          EOF
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: |
+            rsync -avz ./docker-compose.vps3.yml \
+              ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/docker-compose.vps3.yml
+            ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} "cat > /opt/bi_dw/.env" <<EOF
+            POSTGRES_DB=bi_dw
+            POSTGRES_USER=bi_admin
+            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            APP_ENV=production
+            EOF
 
       - name: Start / recreate postgres_dw on VPS3
-        run: |
-          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
-            set -e
-            cd /opt/bi_dw
-            docker compose -f docker-compose.vps3.yml pull postgres_dw 2>/dev/null || true
-            docker compose -f docker-compose.vps3.yml up -d --no-deps postgres_dw
-            echo "Waiting for postgres_dw to be healthy..."
-            for i in $(seq 1 30); do
-              if docker compose -f docker-compose.vps3.yml exec -T postgres_dw pg_isready -U bi_admin -d bi_dw; then
-                echo "postgres_dw is ready."
-                break
-              fi
-              sleep 3
-            done
-            docker compose -f docker-compose.vps3.yml ps postgres_dw
-          ENDSSH
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: |
+            ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
+              set -e
+              cd /opt/bi_dw
+              docker compose -f docker-compose.vps3.yml pull postgres_dw 2>/dev/null || true
+              docker compose -f docker-compose.vps3.yml up -d --no-deps postgres_dw
+              echo "Waiting for postgres_dw to be healthy..."
+              for i in $(seq 1 30); do
+                if docker compose -f docker-compose.vps3.yml exec -T postgres_dw pg_isready -U bi_admin -d bi_dw; then
+                  echo "postgres_dw is ready."
+                  break
+                fi
+                sleep 3
+              done
+              docker compose -f docker-compose.vps3.yml ps postgres_dw
+            ENDSSH
 
       - name: Apply SQL migrations (idempotent)
-        run: |
-          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
-            set -e
-            cd /opt/bi_dw
-            shopt -s nullglob
-            for f in vps3_data_warehouse/migrations/*.sql; do
-              echo "Applying migration: $f"
-              docker compose -f docker-compose.vps3.yml exec -T postgres_dw \
-                psql -v ON_ERROR_STOP=1 -U bi_admin -d bi_dw < "$f"
-            done
-          ENDSSH
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: |
+            ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
+              set -e
+              cd /opt/bi_dw
+              shopt -s nullglob
+              for f in vps3_data_warehouse/migrations/*.sql; do
+                echo "Applying migration: $f"
+                docker compose -f docker-compose.vps3.yml exec -T postgres_dw \
+                  psql -v ON_ERROR_STOP=1 -U bi_admin -d bi_dw < "$f"
+              done
+            ENDSSH
 
       - name: Verify DW schemas exist
-        run: |
-          ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} \
-            "docker compose -f /opt/bi_dw/docker-compose.vps3.yml exec -T postgres_dw \
-             psql -U bi_admin -d bi_dw -c '\dn'"
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 2
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: |
+            ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} \
+              "docker compose -f /opt/bi_dw/docker-compose.vps3.yml exec -T postgres_dw \
+               psql -U bi_admin -d bi_dw -c '\dn'"

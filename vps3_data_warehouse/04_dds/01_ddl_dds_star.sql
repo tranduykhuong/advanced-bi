@@ -5,7 +5,12 @@
 -- Design rules for this layer (Kimball):
 --   • Surrogate keys (integer sequences) on all dimension tables.
 --   • SCD Type 2 on dds.dim_country, dds.dim_product, dds.dim_fta
---     (is_current / version on all three — new row + version+1 on change).
+--     (is_current / version / effective_date / expiry_date on all three —
+--     new row + version+1 on change). fact_trade_transaction resolves the
+--     dimension key valid AT THE TRADE'S OWN PERIOD (first day of the month)
+--     via effective_date/expiry_date, not simply the current version — this
+--     correctly links late-arriving facts to the dimension state that was
+--     true at their time, per the late-arriving-fact technique.
 --   • dds.dim_time is a conformed monthly calendar dimension.
 --   • dds.dim_currency is a conformed currency dimension (seed: VND, USD).
 --   • dds.dim_fta_country is a bridge table replacing the flat text partner_countries.
@@ -80,12 +85,24 @@ CREATE TABLE IF NOT EXISTS dds.dim_country (
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
 
+    -- Point-in-time validity range for late-arriving fact resolution.
+    -- First version: effective_date = '-infinity' (no observed prior state).
+    -- Later versions: effective_date = the date the change was detected.
+    effective_date  DATE         NOT NULL DEFAULT '-infinity',
+    expiry_date     DATE         NOT NULL DEFAULT 'infinity',
+
     -- Lineage
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT pk_dds_dim_country PRIMARY KEY (country_key)
 );
+
+-- Retrofit: table may predate effective_date/expiry_date (added for
+-- late-arriving fact resolution). No-op on fresh installs.
+ALTER TABLE dds.dim_country
+    ADD COLUMN IF NOT EXISTS effective_date DATE NOT NULL DEFAULT '-infinity',
+    ADD COLUMN IF NOT EXISTS expiry_date    DATE NOT NULL DEFAULT 'infinity';
 
 -- Partial unique index: only one active row per country_code
 CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_country_current
@@ -95,6 +112,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_country_current
 -- Index for SCD2 expire lookups
 CREATE INDEX IF NOT EXISTS ix_dds_dim_country_code
     ON dds.dim_country (country_code);
+
+-- Index for point-in-time fact resolution (country_code, [effective_date, expiry_date))
+CREATE INDEX IF NOT EXISTS ix_dds_dim_country_validity
+    ON dds.dim_country (country_code, effective_date, expiry_date);
 
 COMMENT ON TABLE  dds.dim_country IS 'SCD Type 2 country dimension. One is_current=TRUE row per country_code.';
 COMMENT ON COLUMN dds.dim_country.version    IS 'Increments with each SCD2 change.';
@@ -123,6 +144,12 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
 
+    -- Point-in-time validity range for late-arriving fact resolution.
+    -- First version: effective_date = '-infinity' (no observed prior state).
+    -- Later versions: effective_date = the date the change was detected.
+    effective_date  DATE         NOT NULL DEFAULT '-infinity',
+    expiry_date     DATE         NOT NULL DEFAULT 'infinity',
+
     -- Lineage
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -131,6 +158,11 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
     CONSTRAINT pk_dds_dim_product     PRIMARY KEY (product_key)
 );
 
+-- Retrofit: table may predate effective_date/expiry_date. No-op on fresh installs.
+ALTER TABLE dds.dim_product
+    ADD COLUMN IF NOT EXISTS effective_date DATE NOT NULL DEFAULT '-infinity',
+    ADD COLUMN IF NOT EXISTS expiry_date    DATE NOT NULL DEFAULT 'infinity';
+
 -- Partial unique index: only one active row per (hs_code, hs_version)
 CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_product_current
     ON dds.dim_product (hs_code, hs_version)
@@ -138,6 +170,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_product_current
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_bk
     ON dds.dim_product (hs_code, hs_version);
+
+-- Index for point-in-time fact resolution ((hs_code,hs_version), [effective_date, expiry_date))
+CREATE INDEX IF NOT EXISTS ix_dds_dim_product_validity
+    ON dds.dim_product (hs_code, hs_version, effective_date, expiry_date);
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_product_chapter
     ON dds.dim_product (hs_chapter);
@@ -171,6 +207,12 @@ CREATE TABLE IF NOT EXISTS dds.dim_fta (
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
 
+    -- Point-in-time validity range for late-arriving fact resolution.
+    -- First version: effective_date = '-infinity' (no observed prior state).
+    -- Later versions: effective_date = the date the change was detected.
+    effective_date  DATE         NOT NULL DEFAULT '-infinity',
+    expiry_date     DATE         NOT NULL DEFAULT 'infinity',
+
     -- Lineage
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -179,6 +221,11 @@ CREATE TABLE IF NOT EXISTS dds.dim_fta (
     CONSTRAINT pk_dds_dim_fta    PRIMARY KEY (fta_key)
 );
 
+-- Retrofit: table may predate effective_date/expiry_date. No-op on fresh installs.
+ALTER TABLE dds.dim_fta
+    ADD COLUMN IF NOT EXISTS effective_date DATE NOT NULL DEFAULT '-infinity',
+    ADD COLUMN IF NOT EXISTS expiry_date    DATE NOT NULL DEFAULT 'infinity';
+
 -- Partial unique index: only one active row per fta_bk
 CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_fta_current
     ON dds.dim_fta (fta_bk)
@@ -186,6 +233,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_fta_current
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_bk
     ON dds.dim_fta (fta_bk);
+
+-- Index for point-in-time fact resolution (fta_bk, [effective_date, expiry_date))
+CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_validity
+    ON dds.dim_fta (fta_bk, effective_date, expiry_date);
 
 CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_status
     ON dds.dim_fta (status);

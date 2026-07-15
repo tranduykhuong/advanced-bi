@@ -53,7 +53,6 @@ EXPECTED_COLS = [
     "source_system",
     "batch_id",
     "is_late_arriving",
-    "quality_flags",
 ]
 
 cc = coco.CountryConverter()
@@ -282,11 +281,6 @@ def calculate_quarter(month):
 
 def apply_business_rules(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["quality_flags"] = [[] for _ in range(len(df))]
-
-    df.loc[df["value"].fillna(0) <= 0, "quality_flags"] = df.loc[
-        df["value"].fillna(0) <= 0, "quality_flags"
-    ].apply(lambda x: x + ["INVALID_VALUE"])
 
     # HS INFERENCE
     missing_hs_mask = df["hs_code"].isna() | (
@@ -470,10 +464,7 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         # Đảm bảo đầy đủ các cột
         for c in EXPECTED_COLS:
             if c not in df.columns:
-                if c in ["quality_flags"]:
-                    df[c] = [[] for _ in range(len(df))]
-                else:
-                    df[c] = None
+                df[c] = None
 
         df = df[EXPECTED_COLS]
 

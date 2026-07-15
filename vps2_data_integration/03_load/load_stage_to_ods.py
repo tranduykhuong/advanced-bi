@@ -36,7 +36,6 @@ EXPECTED_COLS = [
     "source_system",
     "batch_id",
     "is_late_arriving",
-    "quality_flags",
 ]
 
 
@@ -65,7 +64,6 @@ CREATE TABLE IF NOT EXISTS ods.trade_transaction (
 
     batch_id            UUID NOT NULL,
     is_late_arriving    BOOLEAN DEFAULT FALSE,
-    quality_flags       TEXT[],
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
 
@@ -80,7 +78,7 @@ UPSERT_QUERY = """
         year, quarter, month, hs_code, chapter_name, heading_name, product_name,
         partner_code, partner_name, partner_region, partner_continent,
         flow_type, value, quantity, unit, source_system,
-        batch_id, is_late_arriving, quality_flags
+        batch_id, is_late_arriving
     ) VALUES %s
     ON CONFLICT ON CONSTRAINT uq_ods_trade_transaction
     DO UPDATE SET
@@ -109,7 +107,6 @@ UPSERT_QUERY = """
         unit             = excluded.unit,
         batch_id         = excluded.batch_id,
         is_late_arriving = excluded.is_late_arriving,
-        quality_flags    = excluded.quality_flags,
         updated_at       = NOW()
 """
 
@@ -172,11 +169,6 @@ def _prepare_for_db(df: pd.DataFrame, batch_id: uuid.UUID) -> pd.DataFrame:
     for col in ["is_late_arriving"]:
         if col in df.columns:
             df[col] = df[col].fillna(False).astype(bool)
-
-    # Array
-    for col in ["quality_flags"]:
-        if col in df.columns:
-            df[col] = df[col].apply(lambda x: x if isinstance(x, list) else [])
 
     # Numeric
     for col in ["year", "quarter", "month"]:
@@ -303,7 +295,6 @@ def run(batch_id: uuid.UUID | None = None) -> int:
                 row["source_system"],
                 row["batch_id"],
                 row["is_late_arriving"],
-                row["quality_flags"],
             )
             for _, row in df.iterrows()
         ]
