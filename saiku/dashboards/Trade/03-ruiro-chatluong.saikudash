@@ -1,0 +1,75 @@
+{
+  "id" : "732875cd-b9d8-4013-bb9f-1713bd666deb",
+  "name" : "03_RuiRo_ChatLuong",
+  "version" : 1,
+  "layout" : {
+    "cols" : 12,
+    "tiles" : [ {
+      "id" : "1e5d1ce9-a1a1-4195-b2ff-ae55d947462a",
+      "x" : 3,
+      "y" : 0,
+      "w" : 9,
+      "h" : 4,
+      "type" : "chart",
+      "title" : "Tỷ lệ bất cân xứng theo tháng",
+      "chartType" : "line",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/Line_TyLeBatCanXung_TheoThang.saiku"
+      }
+    }, {
+      "id" : "25206a72-ba76-4acc-a856-666b4d41348d",
+      "x" : 0,
+      "y" : 0,
+      "w" : 3,
+      "h" : 4,
+      "type" : "kpi",
+      "title" : "Tỷ lệ bất cân xứng",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "kpi" : {
+        "measure" : "AsymmetryRatio",
+        "measureCaption" : "AsymmetryRatio",
+        "format" : "percent",
+        "comparison" : "none",
+        "sparkline" : false,
+        "direction" : "higher-is-better"
+      }
+    }, {
+      "id" : "e2c78b6a-73a0-4aab-88e8-6228d3638c7f",
+      "x" : 0,
+      "y" : 4,
+      "w" : 12,
+      "h" : 6,
+      "type" : "chart",
+      "chartType" : "line",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/Line_TyGia.saiku"
+      },
+      "title" : "Tỷ giá trung bình"
+    } ]
+  },
+  "filters" : [ ],
+  "filterPanel" : {
+    "collapsed" : false,
+    "filters" : [ {
+      "id" : "dcd14b4a-d0a2-404c-8abc-01f7c0aa9329",
+      "widget" : "multi-select",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "dimension" : "dim_time",
+      "hierarchy" : "dim_time",
+      "level" : "year",
+      "members" : [ ]
+    } ]
+  }
+}
