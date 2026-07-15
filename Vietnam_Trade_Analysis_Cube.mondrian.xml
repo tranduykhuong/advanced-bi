@@ -45,10 +45,25 @@
     </Dimension>
 
     <!-- ==================== Flow Type (degenerate dimension) ==================== -->
+    <!-- flow_type is a BOOLEAN column. Mondrian wraps level predicates in UPPER()
+         for case-insensitive matching, and UPPER(boolean) fails on PostgreSQL
+         ("function upper(boolean) does not exist") whenever a single flow is
+         isolated (Export/Import KPI, TradeSurplus). Casting the key to text via
+         KeyExpression makes UPPER() valid while keeping members [true]/[false]. -->
     <Dimension name="Flow Type" foreignKey="flow_type">
       <Hierarchy hasAll="true" allMemberName="All Flows" primaryKey="flow_type">
-        <Level name="Flow" column="flow_type" type="Boolean" uniqueMembers="true"
-               caption="Export/Import"/>
+        <Level name="Flow" type="String" uniqueMembers="true" caption="Export/Import">
+          <KeyExpression><SQL dialect="generic">CAST(flow_type AS VARCHAR)</SQL></KeyExpression>
+        </Level>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- ==================== Source System (degenerate dimension) ==================== -->
+    <!-- Lets dashboards slice by data source (TRADE_MAP / UN_COMTRADE / NSO) so the
+         three overlapping sources are not summed together (avoids double counting). -->
+    <Dimension name="Source System" foreignKey="source_system">
+      <Hierarchy hasAll="true" allMemberName="All Sources" primaryKey="source_system">
+        <Level name="Source" column="source_system" type="String" uniqueMembers="true"/>
       </Hierarchy>
     </Dimension>
 
@@ -115,6 +130,28 @@
 
     <Measure name="FTA Trade Count" column="fta_trade_count" aggregator="sum" formatString="#,###"/>
     <Measure name="UtilizationRate" column="utilization_rate" aggregator="avg" formatString="0.00"/>
+  </Cube>
+
+  <!-- ==================== Exchange Rate Cube ==================== -->
+  <!-- Backs the USD/VND volatility tile (report problem #6). Grain in
+       dds.fact_exchange_rate is daily; measures aggregate to the dim_time
+       month for a monthly line, with Max/Min exposing intra-month volatility.
+       exchange_rate = VND per USD. -->
+  <Cube name="Exchange_Rate_Cube">
+    <Table schema="dds" name="fact_exchange_rate"/>
+
+    <Dimension name="dim_time" foreignKey="time_key" type="TimeDimension">
+      <Hierarchy hasAll="true" allMemberName="All Time" primaryKey="time_key">
+        <Table schema="dds" name="dim_time"/>
+        <Level name="year"    column="year"    type="Numeric" uniqueMembers="true"  levelType="TimeYears"/>
+        <Level name="quarter" column="quarter" type="Numeric" uniqueMembers="false" levelType="TimeQuarters"/>
+        <Level name="month"   column="month"   type="Numeric" uniqueMembers="false" levelType="TimeMonths"/>
+      </Hierarchy>
+    </Dimension>
+
+    <Measure name="ExchangeRate_Avg" column="exchange_rate" aggregator="avg" formatString="#,###.00"/>
+    <Measure name="ExchangeRate_Max" column="exchange_rate" aggregator="max" formatString="#,###.00"/>
+    <Measure name="ExchangeRate_Min" column="exchange_rate" aggregator="min" formatString="#,###.00"/>
   </Cube>
 
 </Schema>

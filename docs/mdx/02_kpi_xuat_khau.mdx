@@ -1,0 +1,5 @@
+-- KPI Xuất khẩu (Flow=true) — chart: KPI
+SELECT {[Measures].[TradeValue_VND]} ON COLUMNS,
+  NON EMPTY [dim_time].[year].Members ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]
+WHERE ([Flow Type].[Flow Type].[true])

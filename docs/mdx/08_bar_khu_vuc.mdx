@@ -1,0 +1,4 @@
+-- Bar Kim ngạch theo khu vực — chart: Bar
+SELECT {[Measures].[TradeValue_VND]} ON COLUMNS,
+  NON EMPTY [dim_country].[region].Members ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]

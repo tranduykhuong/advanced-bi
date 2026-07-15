@@ -1,0 +1,94 @@
+{
+  "id" : "9086c4c4-7aba-4769-a377-8c929fb7d2ae",
+  "name" : "02_MatHang_ThiTruong",
+  "version" : 1,
+  "layout" : {
+    "cols" : 12,
+    "tiles" : [ {
+      "id" : "01af8fbf-36ab-4c86-a076-4a1e1522fd03",
+      "x" : 0,
+      "y" : 0,
+      "w" : 6,
+      "h" : 5,
+      "type" : "chart",
+      "title" : "Top 10 HS Code",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "chartType" : "bar",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/Top10HSCode.saiku"
+      }
+    }, {
+      "id" : "96670d09-b102-4eb1-a4ee-649e6420c70c",
+      "x" : 6,
+      "y" : 0,
+      "w" : 6,
+      "h" : 5,
+      "type" : "chart",
+      "title" : "Top 10 Thị trường",
+      "chartType" : "bar",
+      "brushCrossFilter" : {
+        "enabled" : true
+      },
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/Top10_ThiTruong.saiku"
+      },
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      }
+    }, {
+      "id" : "47afd299-39c4-48f8-bfe3-82773cdd639b",
+      "x" : 6,
+      "y" : 5,
+      "w" : 6,
+      "h" : 4,
+      "type" : "chart",
+      "title" : "Tỷ lệ tận dụng FTA",
+      "chartType" : "bar",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/FTA.saiku"
+      }
+    }, {
+      "id" : "3f2abcd2-134f-4df0-9f25-4c9a4d12e722",
+      "x" : 0,
+      "y" : 5,
+      "w" : 6,
+      "h" : 4,
+      "type" : "chart",
+      "chartType" : "bar",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/Top10_ThiPhan.saiku"
+      },
+      "title" : "Top 10 Product Chaper chiếm thị phần cao"
+    } ]
+  },
+  "filters" : [ ],
+  "filterPanel" : {
+    "collapsed" : false,
+    "filters" : [ {
+      "id" : "8367f9d9-c031-4081-a567-a77444384b5f",
+      "widget" : "multi-select",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "dimension" : "dim_time",
+      "hierarchy" : "dim_time",
+      "level" : "year",
+      "members" : [ "[dim_time].[dim_time].[2025]" ]
+    } ]
+  }
+}

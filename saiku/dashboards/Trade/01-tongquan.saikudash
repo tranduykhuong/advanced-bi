@@ -4,7 +4,132 @@
   "version" : 1,
   "layout" : {
     "cols" : 12,
-    "tiles" : [ ]
+    "tiles" : [ {
+      "id" : "c5a5ed6a-c9ee-40f7-80c0-1db15c70a05d",
+      "x" : 0,
+      "y" : 0,
+      "w" : 4,
+      "h" : 2,
+      "type" : "kpi",
+      "title" : "Tổng kim ngạch",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "kpi" : {
+        "measure" : "TradeValue_VND",
+        "measureCaption" : "TradeValue_VND",
+        "format" : "number",
+        "comparison" : "none",
+        "sparkline" : false,
+        "direction" : "higher-is-better"
+      }
+    }, {
+      "id" : "494a5c4e-e123-435b-8aa1-52149dc23db5",
+      "x" : 0,
+      "y" : 2,
+      "w" : 4,
+      "h" : 2,
+      "type" : "kpi",
+      "title" : "Cán cân thương mại",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "kpi" : {
+        "measure" : "TradeSurplus",
+        "measureCaption" : "TradeSurplus",
+        "format" : "number",
+        "comparison" : "none",
+        "sparkline" : false,
+        "direction" : "higher-is-better"
+      }
+    }, {
+      "id" : "1af28ce6-36fa-4fde-893b-ed64eb98531f",
+      "x" : 4,
+      "y" : 0,
+      "w" : 8,
+      "h" : 4,
+      "type" : "chart",
+      "title" : "So sánh Xuất-Nhập khẩu",
+      "chartType" : "line",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/Line_Exp_Imp.saiku"
+      }
+    }, {
+      "id" : "1576aa5e-a79f-45aa-bac4-1520279d342a",
+      "x" : 0,
+      "y" : 4,
+      "w" : 6,
+      "h" : 7,
+      "type" : "chart",
+      "chartType" : "treemap",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/TreeMap_CoCauNhomHang.saiku"
+      }
+    }, {
+      "id" : "2c8cac90-7104-459e-81b9-e0c33c0238ab",
+      "x" : 6,
+      "y" : 4,
+      "w" : 6,
+      "h" : 7,
+      "type" : "chart",
+      "title" : "Kim ngạch theo khu vực",
+      "chartType" : "bar",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/Bar_KhuVuc.saiku"
+      }
+    } ]
   },
-  "filters" : [ ]
+  "filters" : [ ],
+  "filterPanel" : {
+    "collapsed" : false,
+    "filters" : [ {
+      "id" : "c0b1c673-04c4-4f3f-b9cf-28e679344137",
+      "widget" : "multi-select",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "dimension" : "dim_time",
+      "hierarchy" : "dim_time",
+      "level" : "year",
+      "members" : [ "[dim_time].[dim_time].[2026]" ]
+    }, {
+      "id" : "d4f994a1-7230-4537-ba0f-1a289842fab5",
+      "widget" : "multi-select",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "dimension" : "dim_time",
+      "hierarchy" : "dim_time",
+      "level" : "month",
+      "members" : [ ]
+    }, {
+      "id" : "47fd8d70-af78-45c3-901b-96c8545a13a8",
+      "widget" : "multi-select",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "dimension" : "dim_country",
+      "hierarchy" : "dim_country",
+      "level" : "region",
+      "members" : [ "[dim_country].[dim_country].[Africa].[Eastern Africa]" ]
+    } ]
+  }
 }

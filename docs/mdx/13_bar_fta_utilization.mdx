@@ -1,0 +1,4 @@
+-- Bar Tận dụng FTA — chart: Bar  [CUBE: FTA_Utilization_Cube]
+SELECT {[Measures].[UtilizationRate]} ON COLUMNS,
+  NON EMPTY [dim_fta].[fta_name].Members ON ROWS
+FROM [FTA_Utilization_Cube]

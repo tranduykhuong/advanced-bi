@@ -1,0 +1,4 @@
+-- Bar Top 10 thị trường — chart: Bar ngang
+SELECT {[Measures].[TradeValue_VND]} ON COLUMNS,
+  NON EMPTY TopCount([dim_country].[country_name].Members, 10, [Measures].[TradeValue_VND]) ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]
