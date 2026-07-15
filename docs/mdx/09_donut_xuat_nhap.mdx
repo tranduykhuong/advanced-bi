@@ -1,0 +1,4 @@
+-- Donut Xuất vs Nhập — chart: Donut/Pie
+SELECT {[Measures].[TradeValue_VND]} ON COLUMNS,
+  NON EMPTY [Flow Type].[Flow].Members ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]

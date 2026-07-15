@@ -1,0 +1,4 @@
+-- Treemap Cơ cấu nhóm hàng — chart: Treemap
+SELECT {[Measures].[TradeValue_VND], [Measures].[SharePercent]} ON COLUMNS,
+  NON EMPTY [dim_product].[chapter_name].Members ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]

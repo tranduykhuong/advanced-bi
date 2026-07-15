@@ -1,0 +1,5 @@
+-- Line Biến động tỷ giá USD/VND — chart: Line  [CUBE: Exchange_Rate_Cube]
+-- Trục tháng = mọi tháng; Dashboard filter dim_time tự thu hẹp.
+SELECT {[Measures].[ExchangeRate_Avg], [Measures].[ExchangeRate_Max], [Measures].[ExchangeRate_Min]} ON COLUMNS,
+  NON EMPTY [dim_time].[month].Members ON ROWS
+FROM [Exchange_Rate_Cube]

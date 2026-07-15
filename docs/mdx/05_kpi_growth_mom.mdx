@@ -1,0 +1,7 @@
+-- KPI Tăng trưởng MoM — chart: KPI
+-- NGOẠI LỆ: GrowthRateMoM cần ngữ cảnh tháng (so với tháng trước).
+-- Dùng Tail(...,1) lấy THÁNG MỚI NHẤT động — không hard-code năm/tháng.
+-- Dashboard filter dim_time (nếu chọn năm) sẽ tự thu hẹp tập tháng.
+SELECT {[Measures].[GrowthRateMoM]} ON COLUMNS,
+  NON EMPTY Tail([dim_time].[month].Members, 1) ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]

@@ -1,0 +1,5 @@
+-- Stacked bar Mirror stats theo nguồn — chart: Stacked bar
+-- Tile DUY NHẤT dùng Source System (cố ý so sánh nguồn). Thời gian do Dashboard filter.
+SELECT {[Measures].[TradeValue_VND]} ON COLUMNS,
+  NON EMPTY [Source System].[Source].Members ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]

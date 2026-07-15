@@ -1,0 +1,8 @@
+-- Line Xuất/Nhập theo tháng (2 đường) — chart: Line
+-- Trục tháng = mọi tháng; Dashboard filter dim_time tự thu hẹp.
+SELECT NON EMPTY CrossJoin(
+    {[Flow Type].[Flow Type].[true], [Flow Type].[Flow Type].[false]},
+    {[Measures].[TradeValue_VND]}
+  ) ON COLUMNS,
+  NON EMPTY [dim_time].[month].Members ON ROWS
+FROM [Vietnam_Trade_Analysis_Cube]
