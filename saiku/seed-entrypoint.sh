@@ -27,12 +27,19 @@ mkdir -p "$DS_DIR" "$DATA_DIR" "$ETC_DIR"
 # .repo_version write error on every authenticated request — pre-create it.
 [ -f "$ETC_DIR/.repo_version" ] || echo 1 > "$ETC_DIR/.repo_version"
 
-# Restore the saved dashboards + charts on a fresh volume. Only runs when the
-# marker dashboard is absent, so existing user edits are never clobbered.
+# Restore the saved dashboards + charts. We copy any missing files 
+# into the volume so new dashboards are loaded, but existing user 
+# edits are never clobbered.
 ADMIN_HOME="$HOME_DIR/repository/data/unknown/homes/admin"
-if [ ! -f "$ADMIN_HOME/Trade/01-tongquan.saikudash" ]; then
-  mkdir -p "$ADMIN_HOME"
-  cp -r /opt/saiku-seed/homes-admin/. "$ADMIN_HOME/" 2>/dev/null || true
+mkdir -p "$ADMIN_HOME"
+if [ -d "/opt/saiku-seed/homes-admin" ]; then
+  cd /opt/saiku-seed/homes-admin || exit
+  find . -type f | while read -r f; do
+    mkdir -p "$ADMIN_HOME/$(dirname "$f")"
+    if [ ! -f "$ADMIN_HOME/$f" ]; then
+      cp "$f" "$ADMIN_HOME/$f"
+    fi
+  done
 fi
 
 exec /usr/local/bin/saiku-entrypoint "$@"

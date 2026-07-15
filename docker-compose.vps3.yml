@@ -11,6 +11,7 @@ networks:
 
 volumes:
   postgres_data:
+  saiku_data:
 
 services:
   postgres_dw:
@@ -41,5 +42,26 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - vps3_net
+
+  saiku:
+    build:
+      context: .
+      dockerfile: saiku/Dockerfile
+    container_name: saiku
+    restart: unless-stopped
+    environment:
+      SAIKU_ALLOW_DEFAULT_ADMIN: "true"
+      SAIKU_AI_POLICY: "aggregated"
+      JAVA_OPTS: "-Xbootclasspath/a:/drivers/postgresql.jar -Dsaiku.ai.policy=aggregated"
+    ports:
+      # Expose port 8080 (or custom $SAIKU_PORT) out to the internet
+      - "0.0.0.0:${SAIKU_PORT:-8080}:8080"
+    depends_on:
+      postgres_dw:
+        condition: service_healthy
+    volumes:
+      - saiku_data:/app/saiku-home
     networks:
       - vps3_net
