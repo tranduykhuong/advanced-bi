@@ -40,7 +40,7 @@ jobs:
       # network hiccup) — nothing to do with the deployed code. Every network
       # step below retries a few times with a short backoff before failing
       # the job for real.
-      - name: Sync vps3_data_warehouse to VPS3
+      - name: Sync directories to VPS3
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
@@ -51,6 +51,11 @@ jobs:
               --exclude='.git' \
               ./vps3_data_warehouse/ \
               ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/vps3_data_warehouse/
+            rsync -avz --delete \
+              ./saiku/ \
+              ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/saiku/
+            rsync -avz ./Vietnam_Trade_Analysis_Cube.mondrian.xml \
+              ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }}:/opt/bi_dw/Vietnam_Trade_Analysis_Cube.mondrian.xml
 
       - name: Sync docker-compose.vps3.yml and write .env on VPS3
         uses: nick-fields/retry@v3
@@ -91,6 +96,19 @@ jobs:
                 sleep 3
               done
               docker compose -f docker-compose.vps3.yml ps postgres_dw
+            ENDSSH
+
+      - name: Start / recreate saiku on VPS3
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          command: |
+            ssh ${{ secrets.SSH_USER }}@${{ vars.VPS3_HOST }} << 'ENDSSH'
+              set -e
+              cd /opt/bi_dw
+              docker compose -f docker-compose.vps3.yml up -d --build saiku
             ENDSSH
 
       - name: Apply SQL migrations (idempotent)
