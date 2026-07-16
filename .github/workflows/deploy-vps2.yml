@@ -59,6 +59,9 @@ jobs:
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           VPS1_POSTGRES_PASSWORD: ${{ secrets.VPS1_POSTGRES_PASSWORD }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
         run: |
           rsync -avz ./docker-compose.vps2.yml \
             ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }}:/opt/bi_dw/docker-compose.vps2.yml
@@ -78,6 +81,11 @@ jobs:
           ETL_CHUNK_SIZE=10000
           APP_ENV=production
           LOG_LEVEL=INFO
+          SMTP_HOST=smtp.gmail.com
+          SMTP_PORT=587
+          SMTP_USER=${SMTP_USER}
+          SMTP_PASSWORD=${SMTP_PASSWORD}
+          REPORT_EMAIL_TO=${REPORT_EMAIL_TO}
           EOF
 
       - name: Build ETL image on VPS2

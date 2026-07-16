@@ -1,6 +1,6 @@
 name: Run VPS2 ETL Pipeline
 
-# Runs the full ETL pipeline on VPS2 as four sequential CI/CD phase groups.
+# Runs the full ETL pipeline on VPS2 as five sequential CI/CD phase groups.
 # Manual run: Actions → Run VPS2 ETL Pipeline → Run workflow
 # Called by deploy-all.yml after VPS2 deploy.
 # Also runs automatically every day at 18:00 UTC (01:00 ICT/UTC+7) so the
@@ -49,6 +49,15 @@ jobs:
     uses: ./.github/workflows/run-vps2-etl-phase.yml
     with:
       phase_group: nds-dds
+      batch_id: ${{ needs.etl-extract-stage.outputs.batch_id }}
+    secrets: inherit
+
+  etl-mining:
+    name: ETL Phase 5 — Mining (ODS risk classifiers)
+    needs: [etl-extract-stage, etl-nds-dds]
+    uses: ./.github/workflows/run-vps2-etl-phase.yml
+    with:
+      phase_group: mining
       batch_id: ${{ needs.etl-extract-stage.outputs.batch_id }}
       finalize: true
     secrets: inherit

@@ -73,7 +73,11 @@ services:
     ports:
       - "${VPS1_POSTGRES_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${VPS1_POSTGRES_USER:-trademap_admin} -d ${VPS1_POSTGRES_DB:-trademap_db}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${VPS1_POSTGRES_USER:-trademap_admin} -d ${VPS1_POSTGRES_DB:-trademap_db}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -134,9 +138,15 @@ services:
       RAW_DATA_PATH: ${RAW_DATA_PATH:-/raw_data}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      REPORT_EMAIL_TO: ${REPORT_EMAIL_TO:-}
     volumes:
       - ./vps1_data_sources/raw_data:/raw_data:ro
       - ./vps2_data_integration:/app
+      - ${REPORTS_HOST_DIR:-./vps2_data_integration/reports}:/app/reports
     networks:
       - bi_dw_net
 

@@ -50,8 +50,14 @@ PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
         ("01_extract.extract_trademap", "Phase 01: Extract Trade Map (VPS1)"),
         ("03_load.load_stage_db", "Phase 03: Load stage_db"),
         # ETL Exchange Rate (Frankfurter) → Stage
-        ("01_extract.extract_exchange_rate", "Phase 01: Extract Exchange Rate (Frankfurter)"),
-        ("02_transform.transform_exchange_rate_source", "Phase 02: Transform Exchange Rate → Stage"),
+        (
+            "01_extract.extract_exchange_rate",
+            "Phase 01: Extract Exchange Rate (Frankfurter)",
+        ),
+        (
+            "02_transform.transform_exchange_rate_source",
+            "Phase 02: Transform Exchange Rate → Stage",
+        ),
         ("03_load.load_stage_exchange_rate", "Phase 03: Load stage_exchange_rate"),
     ],
     "stage-ods": [
@@ -64,8 +70,14 @@ PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
         ("02_transform.stage_to_ods", "Phase 02: Stage → ODS (Transform + BR)"),
         ("03_load.load_stage_to_ods", "Phase 03: Load into ODS (UPSERT)"),
         # ETL Stage → ODS (Exchange Rate)
-        ("02_transform.exchange_rate_stage_to_ods", "Phase 02: Exchange Rate Stage → ODS (Transform)"),
-        ("03_load.load_exchange_rate_to_ods", "Phase 03: Load ods.exchange_rate (UPSERT)"),
+        (
+            "02_transform.exchange_rate_stage_to_ods",
+            "Phase 02: Exchange Rate Stage → ODS (Transform)",
+        ),
+        (
+            "03_load.load_exchange_rate_to_ods",
+            "Phase 03: Load ods.exchange_rate (UPSERT)",
+        ),
     ],
     "ods-nds": [
         # ETL ODS → NDS
@@ -80,7 +92,23 @@ PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
     ],
     "analyze-forecast": [
         # ETL DDS → Forecast
-        ("04_analyze.forecasting", "Phase 04: Forecasting (Prophet)"),
+        ("04_analyze.forecasting", "Phase 04: Forecasting (Prophet)")
+    ],
+    "mining": [
+        # Risk classifiers read ODS directly — no NDS/DDS dependency, so this
+        # group only needs "stage-ods" to have run first.
+        (
+            "04_mining.risk_exchange_rate_prediction",
+            "Phase 04: Mining — Exchange Rate Risk",
+        ),
+        (
+            "04_mining.risk_trade_balance_prediction",
+            "Phase 04: Mining — Trade Balance Forecast",
+        ),
+        (
+            "04_mining.generate_risk_report",
+            "Phase 04: Mining — Generate Risk Report (PDF)",
+        ),
     ],
 }
 
@@ -92,6 +120,7 @@ PHASE_GROUP_LABELS: dict[str, str] = {
     "ods-nds": "ODS → NDS",
     "nds-dds": "NDS → DDS",
     "analyze-forecast": "Analyze & Forecast",
+    "mining": "Mining (ODS-scoped risk classifiers)",
 }
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -185,9 +214,7 @@ def main() -> int:
     group_label = PHASE_GROUP_LABELS.get(args.phase, "Full pipeline")
 
     # ods-nds without --batch-id → full sync (no ETL_BATCH_ID passed to subprocess)
-    ods_nds_full_sync = (
-        args.phase == "ods-nds" and requested_batch_id is None
-    )
+    ods_nds_full_sync = args.phase == "ods-nds" and requested_batch_id is None
     phase_batch_id: str | None = None if ods_nds_full_sync else batch_id_str
 
     logger.info(
@@ -206,9 +233,7 @@ def main() -> int:
         # Only ods_to_nds uses full-sync when phase_batch_id is None; other phases
         # always receive the pipeline batch_id.
         subprocess_batch_id = (
-            phase_batch_id
-            if module_path == "02_transform.ods_to_nds"
-            else batch_id_str
+            phase_batch_id if module_path == "02_transform.ods_to_nds" else batch_id_str
         )
         exit_code = _run_phase(module_path, subprocess_batch_id)
         if exit_code == 2:
