@@ -154,4 +154,58 @@
     <Measure name="ExchangeRate_Min" column="exchange_rate" aggregator="min" formatString="#,###.00"/>
   </Cube>
 
+  <!-- ==================== ODS Ingestion Monitor (operational) ==================== -->
+  <!-- Operational cube on the ODS layer (ods.v_ingest_monitor, migration 011).
+       Charts pipeline health: records ingested per day/hour by source_system,
+       and late-arriving volume (is_late_arriving). All dimensions are
+       degenerate (values live in the fact view) per the report design; the
+       Late Arriving key is text so Mondrian's UPPER() predicate is valid on
+       PostgreSQL (UPPER(boolean) errors when a member is isolated). -->
+  <Cube name="ODS_Ingest_Monitor">
+    <Table schema="ods" name="v_ingest_monitor"/>
+
+    <Dimension name="Source System" foreignKey="source_system">
+      <Hierarchy hasAll="true" allMemberName="All Sources" primaryKey="source_system">
+        <Level name="Source" column="source_system" type="String" uniqueMembers="true"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- Ingest Time: drill Date -> Hour, from created_at (ingest_date is a
+         sortable YYYY-MM-DD string so the line-chart x-axis orders correctly). -->
+    <Dimension name="Ingest Time" foreignKey="ingest_date">
+      <Hierarchy hasAll="true" allMemberName="All Times" primaryKey="ingest_date">
+        <Level name="Date" column="ingest_date" type="String"  uniqueMembers="true"/>
+        <Level name="Hour" column="ingest_hour" type="Numeric" uniqueMembers="false"/>
+      </Hierarchy>
+    </Dimension>
+
+    <Dimension name="Late Arriving" foreignKey="is_late_arriving">
+      <Hierarchy hasAll="true" allMemberName="All" primaryKey="is_late_arriving">
+        <Level name="Is Late" column="is_late_arriving" type="String" uniqueMembers="true" caption="Late Arriving"/>
+      </Hierarchy>
+    </Dimension>
+
+    <Measure name="Ingested Records" column="ods_id" aggregator="count" formatString="#,###"/>
+  </Cube>
+
+  <!-- ==================== ODS Watermark (operational) ==================== -->
+  <!-- Per-source ETL high-water mark + freshness (ods.v_watermark_monitor,
+       migration 011). MaxPeriodYear/Month are the reliable high-water marks;
+       HoursSinceUpdate is data freshness (approximate — Mondrian caches, so
+       clear the Saiku cache to refresh). Grain is one row per source, so the
+       aggregators just surface the single value. -->
+  <Cube name="ODS_Watermark">
+    <Table schema="ods" name="v_watermark_monitor"/>
+
+    <Dimension name="Source System" foreignKey="source_system">
+      <Hierarchy hasAll="true" allMemberName="All Sources" primaryKey="source_system">
+        <Level name="Source" column="source_system" type="String" uniqueMembers="true"/>
+      </Hierarchy>
+    </Dimension>
+
+    <Measure name="MaxPeriodYear"    column="max_period_year"    aggregator="max" formatString="0"/>
+    <Measure name="MaxPeriodMonth"   column="max_period_month"   aggregator="max" formatString="0"/>
+    <Measure name="HoursSinceUpdate" column="hours_since_update" aggregator="max" formatString="#,##0.0"/>
+  </Cube>
+
 </Schema>
