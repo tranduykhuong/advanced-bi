@@ -20,25 +20,29 @@ mkdir -p "$DS_DIR" "$DATA_DIR" "$ETC_DIR"
 # Mondrian cube schema + its Saiku OLAP datasource (points at postgres_dw/dds).
 [ -f "$DATA_DIR/Vietnam_Trade_Analysis_Cube.xml" ] \
   || cp /opt/saiku-seed/data/Vietnam_Trade_Analysis_Cube.xml "$DATA_DIR/"
-[ -f "$DS_DIR/tradedw.sds" ] \
-  || cp /opt/saiku-seed/datasources/tradedw.sds "$DS_DIR/"
+
+# Always update tradedw.sds to ensure it has correct credentials
+sed -e "s|\${POSTGRES_HOST}|${POSTGRES_HOST:-postgres_dw}|g" \
+    -e "s|\${POSTGRES_PORT}|${POSTGRES_PORT:-5432}|g" \
+    -e "s|\${POSTGRES_DB}|${POSTGRES_DB:-bi_dw}|g" \
+    -e "s|\${POSTGRES_USER}|${POSTGRES_USER:-bi_admin}|g" \
+    -e "s|\${POSTGRES_PASSWORD}|${POSTGRES_PASSWORD:-admin}|g" \
+    /opt/saiku-seed/datasources/tradedw.sds > "$DS_DIR/tradedw.sds"
 
 # The launcher's repo staging misses this file, causing a recurring
 # .repo_version write error on every authenticated request — pre-create it.
 [ -f "$ETC_DIR/.repo_version" ] || echo 1 > "$ETC_DIR/.repo_version"
 
-# Restore the saved dashboards + charts. We copy any missing files 
-# into the volume so new dashboards are loaded, but existing user 
-# edits are never clobbered.
+# Restore the saved dashboards + charts. We copy them into the volume 
+# so new dashboards are loaded, and always overwrite to ensure the repo 
+# remains the source of truth for these default dashboards.
 ADMIN_HOME="$HOME_DIR/repository/data/unknown/homes/admin"
 mkdir -p "$ADMIN_HOME"
 if [ -d "/opt/saiku-seed/homes-admin" ]; then
   cd /opt/saiku-seed/homes-admin || exit
   find . -type f | while read -r f; do
     mkdir -p "$ADMIN_HOME/$(dirname "$f")"
-    if [ ! -f "$ADMIN_HOME/$f" ]; then
-      cp "$f" "$ADMIN_HOME/$f"
-    fi
+    cp "$f" "$ADMIN_HOME/$f"
   done
 fi
 

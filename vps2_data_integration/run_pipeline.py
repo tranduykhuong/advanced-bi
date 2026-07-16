@@ -78,6 +78,10 @@ PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
         # ETL NDS → DDS
         ("03_load.nds_to_dds_scd", "Phase 03: NDS → DDS (SCD)"),
     ],
+    "analyze-forecast": [
+        # ETL DDS → Forecast
+        ("04_analyze.forecasting", "Phase 04: Forecasting (Prophet)"),
+    ],
 }
 
 PHASES = [phase for group in PHASE_GROUPS.values() for phase in group]
@@ -87,6 +91,7 @@ PHASE_GROUP_LABELS: dict[str, str] = {
     "stage-ods": "Stage → ODS",
     "ods-nds": "ODS → NDS",
     "nds-dds": "NDS → DDS",
+    "analyze-forecast": "Analyze & Forecast",
 }
 
 APP_ROOT = Path(__file__).resolve().parent

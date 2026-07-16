@@ -9,3 +9,4 @@ sqlalchemy==2.0.30
 country-converter
 pycountry
 scikit-learn
+prophet

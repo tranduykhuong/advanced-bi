@@ -153,6 +153,11 @@ services:
     container_name: saiku
     restart: unless-stopped
     environment:
+      POSTGRES_HOST: postgres_dw
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-bi_dw}
+      POSTGRES_USER: ${POSTGRES_USER:-bi_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       # Allow the built-in admin/admin login (evaluation / self-hosted use).
       SAIKU_ALLOW_DEFAULT_ADMIN: "true"
       # Allow charts/dashboards to fetch aggregated result values. The default
