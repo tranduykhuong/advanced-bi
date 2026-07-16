@@ -9,3 +9,5 @@ sqlalchemy==2.0.30
 country-converter
 pycountry
 scikit-learn
+xgboost==2.1.1
+matplotlib==3.9.0

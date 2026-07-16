@@ -10,6 +10,7 @@ name: Run VPS2 ETL Phase
 #   stage-ods     — Stage → ODS
 #   ods-nds       — ODS → NDS
 #   nds-dds       — NDS → DDS
+#   mining        — ODS-scoped risk classifiers (needs stage-ods only)
 
 on:
   workflow_dispatch:
@@ -23,6 +24,7 @@ on:
           - stage-ods
           - ods-nds
           - nds-dds
+          - mining
       batch_id:
         description: Batch UUID (tùy chọn; để trống = tạo batch mới)
         required: false
@@ -89,7 +91,7 @@ jobs:
           FINALIZE: ${{ inputs.finalize }}
         run: |
           case "${PHASE_GROUP}" in
-            extract-stage|stage-ods|ods-nds|nds-dds) ;;
+            extract-stage|stage-ods|ods-nds|nds-dds|mining) ;;
             *)
               echo "Invalid phase_group: ${PHASE_GROUP}" >&2
               exit 1

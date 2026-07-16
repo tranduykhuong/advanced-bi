@@ -78,6 +78,13 @@ PHASE_GROUPS: dict[str, list[tuple[str, str]]] = {
         # ETL NDS → DDS
         ("03_load.nds_to_dds_scd", "Phase 03: NDS → DDS (SCD)"),
     ],
+    "mining": [
+        # Risk classifiers read ODS directly — no NDS/DDS dependency, so this
+        # group only needs "stage-ods" to have run first.
+        ("04_mining.risk_exchange_rate_prediction", "Phase 04: Mining — Exchange Rate Risk"),
+        ("04_mining.risk_trade_balance_prediction", "Phase 04: Mining — Trade Balance Forecast"),
+        ("04_mining.generate_risk_report", "Phase 04: Mining — Generate Risk Report (PDF)"),
+    ],
 }
 
 PHASES = [phase for group in PHASE_GROUPS.values() for phase in group]
@@ -87,6 +94,7 @@ PHASE_GROUP_LABELS: dict[str, str] = {
     "stage-ods": "Stage → ODS",
     "ods-nds": "ODS → NDS",
     "nds-dds": "NDS → DDS",
+    "mining": "Mining (ODS-scoped risk classifiers)",
 }
 
 APP_ROOT = Path(__file__).resolve().parent

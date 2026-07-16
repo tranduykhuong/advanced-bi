@@ -76,6 +76,11 @@ class AppConfig:
     frankfurter_base_url: str
     frankfurter_from_date: str
     trademap_min_value_usd: float
+    smtp_host: str
+    smtp_port: int
+    smtp_user: str
+    smtp_password: str
+    report_email_to: str
 
 
 def _host_resolves(hostname: str) -> bool:
@@ -205,4 +210,12 @@ def load_config() -> AppConfig:
         frankfurter_base_url=os.getenv("FRANKFURTER_BASE_URL", "https://api.frankfurter.dev"),
         frankfurter_from_date=os.getenv("FRANKFURTER_FROM_DATE", "1999-01-04"),
         trademap_min_value_usd=float(os.getenv("TRADEMAP_MIN_VALUE_USD", "0")),
+        # Optional: email delivery for the mining risk report (see
+        # 04_mining/generate_risk_report.py). Left empty, delivery is skipped
+        # — nothing else in the pipeline depends on these.
+        smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com"),
+        smtp_port=int(os.getenv("SMTP_PORT", "587")),
+        smtp_user=os.getenv("SMTP_USER", ""),
+        smtp_password=os.getenv("SMTP_PASSWORD", ""),
+        report_email_to=os.getenv("REPORT_EMAIL_TO", ""),
     )
