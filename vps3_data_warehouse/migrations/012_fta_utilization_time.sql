@@ -34,6 +34,13 @@
 --
 -- Idempotent: CREATE OR REPLACE VIEW (fresh names, no DROP needed).
 -- Read-only over dds.
+--
+-- NOTE: these views read the BASE table dds.dim_fta (filtered to is_current),
+-- NOT the convenience view dds.dim_fta_current. Migration 009 runs earlier and
+-- does `DROP VIEW IF EXISTS dds.dim_fta_current` (without CASCADE) to retrofit
+-- dim_fta; depending on that view would block 009 on every deploy. dim_fta is a
+-- plain table 009 only ALTERs (it never drops the fta_key/fta_name/is_current
+-- columns these views use), so the base-table dependency is safe.
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -41,7 +48,7 @@
 -- denominator member.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE VIEW dds.dim_fta_agreement AS
-SELECT DISTINCT fta_name FROM dds.dim_fta_current
+SELECT DISTINCT fta_name FROM dds.dim_fta WHERE is_current
 UNION ALL
 SELECT 'ALL VN TRADE';
 
@@ -59,7 +66,7 @@ SELECT
     b.time_key,
     COUNT(DISTINCT b.trade_key)::int AS fta_trade_count
 FROM dds.fact_trade_fta_bridge b
-JOIN dds.dim_fta_current dd ON b.fta_key = dd.fta_key
+JOIN dds.dim_fta dd ON b.fta_key = dd.fta_key AND dd.is_current
 GROUP BY dd.fta_name, b.time_key
 UNION ALL
 SELECT
