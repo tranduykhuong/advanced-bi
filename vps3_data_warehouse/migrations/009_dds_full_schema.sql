@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS dds.dim_country (
     region          TEXT,
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
+    effective_date  DATE         NOT NULL DEFAULT '-infinity',
+    expiry_date     DATE         NOT NULL DEFAULT 'infinity',
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
@@ -112,10 +114,13 @@ CREATE TABLE IF NOT EXISTS dds.dim_country (
 -- doesn't block the column drop below.
 DROP VIEW IF EXISTS dds.dim_country_current;
 
--- Per the report design, SCD2 here only needs is_current + version.
 ALTER TABLE dds.dim_country
     DROP COLUMN IF EXISTS valid_from,
     DROP COLUMN IF EXISTS valid_to;
+
+ALTER TABLE dds.dim_country 
+    ADD COLUMN IF NOT EXISTS effective_date DATE NOT NULL DEFAULT '-infinity',
+    ADD COLUMN IF NOT EXISTS expiry_date DATE NOT NULL DEFAULT 'infinity';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uix_dds_dim_country_current
     ON dds.dim_country (country_code)
@@ -126,6 +131,8 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_country_code
 
 COMMENT ON TABLE  dds.dim_country IS 'SCD Type 2 country dimension. One is_current=TRUE row per country_code.';
 COMMENT ON COLUMN dds.dim_country.version    IS 'Increments with each SCD2 change.';
+COMMENT ON COLUMN dds.dim_country.effective_date IS 'SCD2 start date. Supports late-arriving facts.';
+COMMENT ON COLUMN dds.dim_country.expiry_date    IS 'SCD2 end date. Supports late-arriving facts.';
 
 -- ---------------------------------------------------------------------------
 -- 4. dds.dim_product  (SCD Type 2)
@@ -143,6 +150,8 @@ CREATE TABLE IF NOT EXISTS dds.dim_product (
     product_name    TEXT,
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
+    effective_date  DATE         NOT NULL DEFAULT '-infinity',
+    expiry_date     DATE         NOT NULL DEFAULT 'infinity',
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -159,15 +168,17 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_product_heading
     ON dds.dim_product (hs_heading);
 
 -- SCD2 retrofit: swap the plain business-key unique constraint for a partial
--- unique index scoped to is_current = TRUE. Drop valid_from/valid_to if an
--- earlier revision of this migration already added them — per the report
--- design, SCD2 here only needs is_current + version.
+-- unique index scoped to is_current = TRUE.
 -- Drop any untracked "_current" convenience view first (see dim_country above).
 DROP VIEW IF EXISTS dds.dim_product_current;
 
 ALTER TABLE dds.dim_product
     DROP COLUMN IF EXISTS valid_from,
     DROP COLUMN IF EXISTS valid_to;
+
+ALTER TABLE dds.dim_product 
+    ADD COLUMN IF NOT EXISTS effective_date DATE NOT NULL DEFAULT '-infinity',
+    ADD COLUMN IF NOT EXISTS expiry_date DATE NOT NULL DEFAULT 'infinity';
 
 ALTER TABLE dds.dim_product DROP CONSTRAINT IF EXISTS uq_dds_dim_product_bk;
 
@@ -180,6 +191,8 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_product_bk
 
 COMMENT ON TABLE  dds.dim_product IS 'SCD Type 2 product dimension. One is_current=TRUE row per (hs_code, hs_version).';
 COMMENT ON COLUMN dds.dim_product.version    IS 'Increments with each SCD2 change.';
+COMMENT ON COLUMN dds.dim_product.effective_date IS 'SCD2 start date. Supports late-arriving facts.';
+COMMENT ON COLUMN dds.dim_product.expiry_date    IS 'SCD2 end date. Supports late-arriving facts.';
 
 -- ---------------------------------------------------------------------------
 -- 5. dds.dim_fta  (SCD Type 2)
@@ -197,6 +210,8 @@ CREATE TABLE IF NOT EXISTS dds.dim_fta (
     status          TEXT,
     is_current      BOOLEAN      NOT NULL DEFAULT TRUE,
     version         INTEGER      NOT NULL DEFAULT 1,
+    effective_date  DATE         NOT NULL DEFAULT '-infinity',
+    expiry_date     DATE         NOT NULL DEFAULT 'infinity',
     batch_id        UUID,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -211,15 +226,17 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_enforcement_year
     ON dds.dim_fta (enforcement_year);
 
 -- SCD2 retrofit: swap the plain business-key unique constraint for a partial
--- unique index scoped to is_current = TRUE. Drop valid_from/valid_to if an
--- earlier revision of this migration already added them — per the report
--- design, SCD2 here only needs is_current + version.
+-- unique index scoped to is_current = TRUE.
 -- Drop any untracked "_current" convenience view first (see dim_country above).
 DROP VIEW IF EXISTS dds.dim_fta_current;
 
 ALTER TABLE dds.dim_fta
     DROP COLUMN IF EXISTS valid_from,
     DROP COLUMN IF EXISTS valid_to;
+
+ALTER TABLE dds.dim_fta 
+    ADD COLUMN IF NOT EXISTS effective_date DATE NOT NULL DEFAULT '-infinity',
+    ADD COLUMN IF NOT EXISTS expiry_date DATE NOT NULL DEFAULT 'infinity';
 
 ALTER TABLE dds.dim_fta DROP CONSTRAINT IF EXISTS uq_dds_dim_fta_bk;
 
@@ -233,6 +250,8 @@ CREATE INDEX IF NOT EXISTS ix_dds_dim_fta_bk
 COMMENT ON TABLE  dds.dim_fta IS 'SCD Type 2 Free Trade Agreement dimension. One is_current=TRUE row per fta_bk.';
 COMMENT ON COLUMN dds.dim_fta.fta_bk      IS 'Business key — references nds.fta.fta_id.';
 COMMENT ON COLUMN dds.dim_fta.version     IS 'Increments with each SCD2 change.';
+COMMENT ON COLUMN dds.dim_fta.effective_date IS 'SCD2 start date. Supports late-arriving facts.';
+COMMENT ON COLUMN dds.dim_fta.expiry_date    IS 'SCD2 end date. Supports late-arriving facts.';
 
 -- ---------------------------------------------------------------------------
 -- 6. dds.dim_fta_country  (Bridge)

@@ -110,6 +110,7 @@ jobs:
 
           echo "Executing: run_pipeline.py --phase ${PHASE_GROUP} ${BATCH_ARG} ${FINALIZE_FLAG}"
 
+          set +e
           OUTPUT=$(ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=60 \
             ${{ secrets.SSH_USER }}@${{ vars.VPS2_HOST }} << ENDSSH
             set -e
@@ -118,8 +119,18 @@ jobs:
               python run_pipeline.py --phase ${PHASE_GROUP} ${BATCH_ARG} ${FINALIZE_FLAG}
           ENDSSH
           )
+          SSH_EXIT_CODE=$?
+          set -e
 
+          echo "=== SSH COMMAND OUTPUT ==="
           echo "${OUTPUT}"
+          echo "=========================="
+
+          if [ $SSH_EXIT_CODE -ne 0 ]; then
+            echo "Error: SSH command failed with exit code $SSH_EXIT_CODE." >&2
+            exit $SSH_EXIT_CODE
+          fi
+
           PARSED_BATCH_ID=$(echo "${OUTPUT}" | grep '^ETL_BATCH_ID=' | tail -1 | cut -d= -f2)
           if [ -z "${PARSED_BATCH_ID}" ]; then
             echo "Failed to parse ETL_BATCH_ID from pipeline output." >&2
