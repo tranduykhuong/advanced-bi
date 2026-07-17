@@ -1,0 +1,34 @@
+{
+  "id" : "f4e722c4-c1b4-41ce-8c5b-fb59dde9f25e",
+  "name" : "Forecast",
+  "version" : 1,
+  "layout" : {
+    "cols" : 12,
+    "tiles" : [ {
+      "id" : "61278d75-43df-44e0-83e7-79f2de69d87f",
+      "x" : 0,
+      "y" : 0,
+      "w" : 6,
+      "h" : 4,
+      "type" : "chart",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Trade_Forecast_Cube"
+      },
+      "chartType" : "line",
+      "forecast" : {
+        "enabled" : true,
+        "method" : "ets",
+        "horizon" : 6,
+        "confidence" : 0.95
+      },
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/forecast_10m.saiku"
+      }
+    } ]
+  },
+  "filters" : [ ]
+}

@@ -16,6 +16,28 @@
       "query" : {
         "kind" : "reference",
         "path" : "homes/admin/Trade/Line_TyLeBatCanXung_TheoThang.saiku"
+      },
+      "chartOptions" : {
+        "title" : "",
+        "xAxisLabel" : "",
+        "yAxisLabel" : "",
+        "showLegend" : true,
+        "legendPosition" : "top",
+        "trendLine" : "none",
+        "trendPeriod" : 3,
+        "hideRollupRows" : true,
+        "dualAxis" : true,
+        "seriesAxis" : { },
+        "seriesType" : { },
+        "colorRamp" : "blues",
+        "mapMissing" : "blank",
+        "sortDirection" : "none",
+        "topN" : null,
+        "palette" : "default",
+        "seriesColors" : { },
+        "referenceLines" : [ ],
+        "referenceBands" : [ ],
+        "conditionalFormat" : [ ]
       }
     }, {
       "id" : "25206a72-ba76-4acc-a856-666b4d41348d",
