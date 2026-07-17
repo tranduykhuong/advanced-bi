@@ -28,7 +28,7 @@ sys.path.insert(
 
 from config import load_config
 from common.logging_config import setup_logging, get_logger
-from common.db import get_engine, register_batch, complete_batch
+from common.db import get_engine, register_batch, complete_batch, log_late_arrival_audit
 from common.country_resolver import resolve_from_country_name, resolve_from_country_code
 
 logger = get_logger(__name__)
@@ -460,6 +460,14 @@ def run(batch_id: uuid.UUID | None = None) -> int:
 
         df = apply_business_rules(df)
         df = detect_late_arriving(df, engine)
+
+        late_mask = df["is_late_arriving"] == True  # noqa: E712
+        if late_mask.any():
+            late_cols = ["year", "month", "hs_code", "partner_code", "flow_type", "source_system"]
+            log_late_arrival_audit(
+                engine, batch_id, "ods.trade_transaction",
+                df.loc[late_mask, late_cols].to_dict("records"),
+            )
 
         # Đảm bảo đầy đủ các cột
         for c in EXPECTED_COLS:

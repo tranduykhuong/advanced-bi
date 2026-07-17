@@ -163,3 +163,36 @@ def log_reject_records(
         len(payload), process_type, source_table, reject_reason,
     )
     return len(payload)
+
+
+def log_late_arrival_audit(
+    engine: Engine,
+    batch_id: uuid.UUID,
+    source_table: str,
+    rows: list[dict],
+) -> int:
+    """Permanently record newly-detected late-arriving business keys, once, at
+    detection time — independent of the mutable is_late_arriving flag lifecycle
+    (which gets cleared once propagation to NDS is verified). Used for historical
+    late-arrival-rate analysis (see 04_mining/risk_trade_balance_prediction.py).
+    """
+    if not rows:
+        return 0
+    payload = [
+        {"batch_id": str(batch_id), "source_table": source_table, **row}
+        for row in rows
+    ]
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO public.late_arrival_audit "
+                "(batch_id, source_table, year, month, hs_code, partner_code, flow_type, source_system) "
+                "VALUES (:batch_id, :source_table, :year, :month, :hs_code, :partner_code, :flow_type, :source_system)"
+            ),
+            payload,
+        )
+    logger.info(
+        "Logged %d late_arrival_audit row(s) (source_table=%s)",
+        len(payload), source_table,
+    )
+    return len(payload)

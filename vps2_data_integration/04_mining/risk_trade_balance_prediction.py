@@ -112,20 +112,40 @@ FEATURE_COLS = [
 
 
 def _load_monthly_balance(engine) -> pd.DataFrame:
+    # late_arriving_ratio is read from public.late_arrival_audit (an append-only
+    # audit trail, never updated/deleted) rather than
+    # ods.trade_transaction.is_late_arriving directly — that flag is cleared by
+    # late_arriving_handler.py once propagation to NDS is verified, so counting
+    # it live would understate the historical late-arrival rate for any month
+    # whose late rows have already been resolved.
     with engine.connect() as conn:
         rows = conn.execute(
             text(
                 """
+                WITH monthly AS (
+                    SELECT
+                        year,
+                        month,
+                        SUM(value) FILTER (WHERE flow_type)     AS export_usd,
+                        SUM(value) FILTER (WHERE NOT flow_type) AS import_usd,
+                        COUNT(*)                                AS total_count
+                    FROM ods.trade_transaction
+                    GROUP BY year, month
+                ),
+                late AS (
+                    SELECT year, month, COUNT(*) AS late_count
+                    FROM public.late_arrival_audit
+                    GROUP BY year, month
+                )
                 SELECT
-                    year,
-                    month,
-                    SUM(value) FILTER (WHERE flow_type)     AS export_usd,
-                    SUM(value) FILTER (WHERE NOT flow_type) AS import_usd,
-                    COUNT(*) FILTER (WHERE is_late_arriving)::float
-                        / NULLIF(COUNT(*), 0)                AS late_arriving_ratio
-                FROM ods.trade_transaction
-                GROUP BY year, month
-                ORDER BY year, month
+                    m.year,
+                    m.month,
+                    m.export_usd,
+                    m.import_usd,
+                    COALESCE(l.late_count, 0)::float / NULLIF(m.total_count, 0) AS late_arriving_ratio
+                FROM monthly m
+                LEFT JOIN late l ON l.year = m.year AND l.month = m.month
+                ORDER BY m.year, m.month
                 """
             )
         ).fetchall()
