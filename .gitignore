@@ -36,6 +36,9 @@ vps1_data_sources/raw_data/*.parquet
 postgres_data/
 *.log
 
+# Mining risk report — emailed only, never committed
+vps2_data_integration/reports/
+
 # IDE
 .idea/
 .vscode/

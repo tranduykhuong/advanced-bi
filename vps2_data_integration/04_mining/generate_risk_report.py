@@ -8,14 +8,16 @@ slice/dice, so an OLAP cube adds ceremony without value here. A plain
 chart does the one thing this output needs: show the trend and make the
 periods that crossed the alert threshold visually obvious.
 
-Output: vps2_data_integration/reports/risk_report.pdf (2 pages, one per
-model), regenerated on every mining run — matches the "báo cáo tĩnh (PDF)"
-functional requirement (report Section II.c), independent from the
-interactive Saiku dashboards which stay scoped to DDS/OLAP.
+Output: a 2-page PDF (one page per model), built in memory and emailed as an
+attachment on every mining run — matches the "báo cáo tĩnh (PDF)" functional
+requirement (report Section II.c), independent from the interactive Saiku
+dashboards which stay scoped to DDS/OLAP. Never written to disk — email is
+the only delivery channel, so a run with SMTP unset produces no artifact.
 """
 
 from __future__ import annotations
 
+import io
 import smtplib
 import sys
 import uuid
@@ -49,8 +51,7 @@ RISK_COLOR = "#C0392B"  # red — period crossed the alert threshold
 NORMAL_COLOR = "#2E75B6"  # blue — period within normal range
 THRESHOLD_COLOR = "#7B241C"
 
-REPORT_DIR = Path(__file__).resolve().parents[1] / "reports"
-REPORT_FILE = REPORT_DIR / "risk_report.pdf"
+REPORT_FILENAME = "risk_report.pdf"
 
 
 _ENSURE_TABLES_SQL = """
@@ -177,6 +178,18 @@ def _plot_exchange_rate_page(pdf: PdfPages, df: pd.DataFrame) -> None:
         edgecolors="white",
         linewidths=0.6,
     )
+    for x, y in zip(df["target_date"], df["predicted_change_pct"]):
+        ax.annotate(
+            f"{y:.1%}",
+            (x, y),
+            textcoords="offset points",
+            xytext=(0, 6),
+            ha="center",
+            va="bottom",
+            fontsize=6.5,
+            rotation=90,
+            zorder=3,
+        )
 
     threshold_up = float(df["risk_threshold_up"].iloc[-1])
     first_row = df.iloc[0]
@@ -185,6 +198,17 @@ def _plot_exchange_rate_page(pdf: PdfPages, df: pd.DataFrame) -> None:
     )
     ax.axhline(0, color="#999999", linewidth=0.8, zorder=0)  # "no change" reference
     ax.axhline(threshold_up, color=THRESHOLD_COLOR, linestyle="--", linewidth=1.5)
+    ax.annotate(
+        f"Ngưỡng an toàn: {threshold_up:.2%}",
+        (df["target_date"].iloc[-1], threshold_up),
+        textcoords="offset points",
+        xytext=(0, 4),
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        color=THRESHOLD_COLOR,
+        fontweight="bold",
+    )
 
     as_of_date_str = as_of_date.strftime(DATE_FORMAT)
     ax.set_title(
@@ -196,6 +220,7 @@ def _plot_exchange_rate_page(pdf: PdfPages, df: pd.DataFrame) -> None:
     ax.set_ylabel("% thay đổi dự kiến so với tỷ giá hôm nay")
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.1%}"))
     ax.xaxis.set_major_formatter(mdates.DateFormatter(DATE_FORMAT))
+    ax.margins(y=0.2)
     fig.autofmt_xdate()
 
     n_risk_days = int(df["is_high_risk"].sum())
@@ -234,7 +259,18 @@ def _plot_trade_balance_page(pdf: PdfPages, df: pd.DataFrame) -> None:
         return
 
     colors = [RISK_COLOR if r else NORMAL_COLOR for r in df["is_high_risk"]]
-    ax.bar(df["target_month"], df["predicted_balance"], color=colors, width=20)
+    bars = ax.bar(df["target_month"], df["predicted_balance"], color=colors, width=20)
+    for bar, value in zip(bars, df["predicted_balance"]):
+        ax.annotate(
+            f"{value / 1e9:,.1f}",
+            (bar.get_x() + bar.get_width() / 2, value),
+            textcoords="offset points",
+            xytext=(0, 4 if value >= 0 else -4),
+            ha="center",
+            va="bottom" if value >= 0 else "top",
+            fontsize=7.5,
+            zorder=3,
+        )
 
     threshold_down = float(df["risk_threshold_down"].iloc[-1])
     # Actual mining run timestamp (DB-recorded), NOT derived from target_month —
@@ -245,6 +281,17 @@ def _plot_trade_balance_page(pdf: PdfPages, df: pd.DataFrame) -> None:
     as_of_date_str = mining_run_date.strftime(DATE_FORMAT)
     ax.axhline(0, color="#999999", linewidth=0.8, zorder=0)  # surplus/deficit boundary
     ax.axhline(threshold_down, color=THRESHOLD_COLOR, linestyle="--", linewidth=1.5)
+    ax.annotate(
+        f"Ngưỡng rủi ro: {threshold_down / 1e9:,.2f} tỷ USD",
+        (df["target_month"].iloc[-1], threshold_down),
+        textcoords="offset points",
+        xytext=(0, -4),
+        ha="right",
+        va="top",
+        fontsize=8,
+        color=THRESHOLD_COLOR,
+        fontweight="bold",
+    )
 
     ax.set_title(
         f"Dự báo cán cân thương mại — {len(df)} tháng tới kể từ {as_of_date_str}",
@@ -256,6 +303,7 @@ def _plot_trade_balance_page(pdf: PdfPages, df: pd.DataFrame) -> None:
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / 1e9:,.1f}"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
     ax.xaxis.set_major_formatter(mdates.DateFormatter(MONTH_FORMAT))
+    ax.margins(y=0.2)
     fig.autofmt_xdate()
 
     n_risk_months = int(df["is_high_risk"].sum())
@@ -275,10 +323,9 @@ def _plot_trade_balance_page(pdf: PdfPages, df: pd.DataFrame) -> None:
     plt.close(fig)
 
 
-def _send_report_email(cfg, pdf_path: Path) -> None:
-    """Email the PDF as an attachment — the only way to get it onto a
-    personal computer from a run that happens on a remote server (VPS2's
-    daily cron), where nothing is mounted back to any specific machine.
+def _send_report_email(cfg, pdf_bytes: bytes) -> None:
+    """Email the PDF as an attachment — the only delivery channel; the report
+    is never written to disk.
 
     Opt-in: skipped (not an error) unless SMTP_USER/SMTP_PASSWORD/
     REPORT_EMAIL_TO are all set. Delivery failures are logged and swallowed
@@ -299,10 +346,10 @@ def _send_report_email(cfg, pdf_path: Path) -> None:
         "thương mại được đính kèm (tự động, từ phase mining của pipeline ETL)."
     )
     msg.add_attachment(
-        pdf_path.read_bytes(),
+        pdf_bytes,
         maintype="application",
         subtype="pdf",
-        filename=pdf_path.name,
+        filename=REPORT_FILENAME,
     )
 
     try:
@@ -329,19 +376,18 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         fx_df = _load_exchange_rate_risk(engine)
         balance_df = _load_trade_balance_risk(engine)
 
-        REPORT_DIR.mkdir(parents=True, exist_ok=True)
-        with PdfPages(REPORT_FILE) as pdf:
+        buffer = io.BytesIO()
+        with PdfPages(buffer) as pdf:
             _plot_exchange_rate_page(pdf, fx_df)
             _plot_trade_balance_page(pdf, balance_df)
 
         logger.info(
-            "Wrote risk report to %s (%d + %d rows)",
-            REPORT_FILE,
+            "Generated risk report in memory (%d + %d rows)",
             len(fx_df),
             len(balance_df),
         )
 
-        _send_report_email(cfg, REPORT_FILE)
+        _send_report_email(cfg, buffer.getvalue())
 
     except Exception as exc:
         logger.exception("generate_risk_report failed: %s", exc)

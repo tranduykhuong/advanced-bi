@@ -146,7 +146,6 @@ services:
     volumes:
       - ./vps1_data_sources/raw_data:/raw_data:ro
       - ./vps2_data_integration:/app
-      - ${REPORTS_HOST_DIR:-./vps2_data_integration/reports}:/app/reports
     networks:
       - bi_dw_net
 

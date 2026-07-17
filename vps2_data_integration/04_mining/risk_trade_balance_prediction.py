@@ -249,13 +249,30 @@ def run(batch_id: uuid.UUID | None = None) -> int:
         as_of_month_num = int(features["month"].iloc[-1])
         as_of_month = date(as_of_year, as_of_month_num, 1)
 
-        for k in range(1, RISK_WINDOW_MONTHS + 1):
+        # ods.trade_transaction lags behind real time (last observed month can
+        # be weeks/months old), so the output window must be anchored to the
+        # actual mining run date, not to as_of_month — otherwise target_month
+        # starts in the past relative to when mining actually ran. mining_month
+        # (the first not-yet-observed month) becomes horizon i=1;
+        # data_gap_months converts each row's "months ahead of mining_month"
+        # back into "months ahead of as_of_month", which is what train_horizon's
+        # k actually shifts against. Clamped to >= 1 so k is never 0 (predicting
+        # a month from its own feature row) even if ODS is fully caught up.
+        mining_month = date.today().replace(day=1)
+        data_gap_months = max(
+            1,
+            (mining_month.year - as_of_month.year) * 12
+            + (mining_month.month - as_of_month.month),
+        )
+
+        for i in range(1, RISK_WINDOW_MONTHS + 1):
+            k = data_gap_months + i - 1
             predicted_balance = train_horizon(features, k)
-            target_month = _add_months(as_of_month, k)
+            target_month = _add_months(mining_month, i - 1)
             rows.append(
                 (
                     target_month,
-                    k,
+                    i,
                     predicted_balance,
                     predicted_balance < risk_threshold_down,
                     risk_threshold_down,
@@ -279,8 +296,9 @@ def run(batch_id: uuid.UUID | None = None) -> int:
             conn_raw.close()
 
         logger.info(
-            "Reset mining.trade_balance_risk_prediction and inserted %d rows (as_of_month=%s)",
-            len(rows), as_of_month,
+            "Reset mining.trade_balance_risk_prediction and inserted %d rows "
+            "(as_of_month=%s, mining_month=%s)",
+            len(rows), as_of_month, mining_month,
         )
 
     except NotImplementedError as exc:
