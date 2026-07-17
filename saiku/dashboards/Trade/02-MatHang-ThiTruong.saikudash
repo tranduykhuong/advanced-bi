@@ -21,7 +21,10 @@
       "chartType" : "bar",
       "query" : {
         "kind" : "reference",
-        "path" : "homes/admin/Trade/Top10HSCode.saiku"
+        "path" : "homes/admin/Top10HSCode.saiku"
+      },
+      "brushCrossFilter" : {
+        "enabled" : true
       }
     }, {
       "id" : "96670d09-b102-4eb1-a4ee-649e6420c70c",
@@ -75,7 +78,7 @@
   },
   "filters" : [ ],
   "filterPanel" : {
-    "collapsed" : false,
+    "collapsed" : true,
     "filters" : [ {
       "id" : "8367f9d9-c031-4081-a567-a77444384b5f",
       "widget" : "multi-select",
