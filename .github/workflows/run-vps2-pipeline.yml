@@ -10,8 +10,8 @@ name: Run VPS2 ETL Pipeline
 on:
   workflow_dispatch:
   workflow_call:
-  schedule:
-    - cron: "0 18 * * *"   # 18:00 UTC = 01:00 ICT (Vietnam, UTC+7)
+#   schedule:
+#     - cron: "0 18 * * *"   # 18:00 UTC = 01:00 ICT (Vietnam, UTC+7)
 
 concurrency:
   group: run-vps2-pipeline
