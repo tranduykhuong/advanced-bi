@@ -72,7 +72,8 @@
       "query" : {
         "kind" : "reference",
         "path" : "homes/admin/Trade/TreeMap_CoCauNhomHang.saiku"
-      }
+      },
+      "title" : "Thị phần các nhóm hàng"
     }, {
       "id" : "2c8cac90-7104-459e-81b9-e0c33c0238ab",
       "x" : 6,
@@ -85,6 +86,19 @@
       "query" : {
         "kind" : "reference",
         "path" : "homes/admin/Trade/Bar_KhuVuc.saiku"
+      }
+    }, {
+      "id" : "8269241c-5a04-4e10-befa-ba68a0191344",
+      "x" : 0,
+      "y" : 11,
+      "w" : 12,
+      "h" : 4,
+      "type" : "chart",
+      "title" : "Tỷ lệ tận dụng FTA",
+      "chartType" : "bar",
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/Trade/FTA.saiku"
       }
     } ]
   },
