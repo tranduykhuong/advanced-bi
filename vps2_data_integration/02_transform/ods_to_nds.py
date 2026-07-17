@@ -78,10 +78,6 @@ def _sql_params(full_sync: bool, batch_id: uuid.UUID) -> dict:
     return {} if full_sync else {"batch_id": str(batch_id)}
 
 
-def _trade_time_filter_and(alias: str = "") -> str:
-    """SQL fragment: restrict data to May 2025 - April 2026."""
-    prefix = f"{alias}." if alias else ""
-    return f"({prefix}year * 100 + {prefix}month) BETWEEN 202505 AND 202604 AND "
 
 
 # ---------------------------------------------------------------------------
@@ -90,11 +86,10 @@ def _trade_time_filter_and(alias: str = "") -> str:
 # ---------------------------------------------------------------------------
 def _find_invalid_country_codes(engine, full_sync: bool, params: dict) -> list[str]:
     b = _batch_and(full_sync, alias="o")
-    t = _trade_time_filter_and(alias="o")
     sql = text(f"""
         SELECT DISTINCT o.partner_code
         FROM ods.trade_transaction o
-        WHERE {b}{t}o.partner_code IS NOT NULL AND o.partner_code <> ''
+        WHERE {b}o.partner_code IS NOT NULL AND o.partner_code <> ''
     """)
     with engine.connect() as conn:
         codes = [r.partner_code for r in conn.execute(sql, params).fetchall()]
@@ -115,7 +110,6 @@ def _find_invalid_country_codes(engine, full_sync: bool, params: dict) -> list[s
 # ---------------------------------------------------------------------------
 def _sql_upsert_countries_trade(full_sync: bool, has_invalid_codes: bool) -> text:
     b = _batch_and(full_sync)
-    t = _trade_time_filter_and()
     invalid_cond = _invalid_code_condition("", has_invalid_codes)
     return text(f"""
         INSERT INTO nds.country (country_code, country_name, continent, region)
@@ -125,7 +119,7 @@ def _sql_upsert_countries_trade(full_sync: bool, has_invalid_codes: bool) -> tex
             MODE() WITHIN GROUP (ORDER BY partner_continent) AS continent,
             MODE() WITHIN GROUP (ORDER BY partner_region)    AS region
         FROM ods.trade_transaction
-        WHERE {b}{t}partner_code IS NOT NULL
+        WHERE {b}partner_code IS NOT NULL
           AND partner_code <> ''
           AND NOT ({invalid_cond})
         GROUP BY partner_code
@@ -139,7 +133,6 @@ def _sql_upsert_countries_trade(full_sync: bool, has_invalid_codes: bool) -> tex
 
 def _sql_upsert_products(full_sync: bool) -> text:
     b = _batch_and(full_sync)
-    t = _trade_time_filter_and()
     return text(f"""
         INSERT INTO nds.product (hs_code, hs_version, chapter_name, heading_name, product_name)
         SELECT DISTINCT ON (hs_code)
@@ -149,7 +142,7 @@ def _sql_upsert_products(full_sync: bool) -> text:
             heading_name,
             product_name
         FROM ods.trade_transaction
-        WHERE {b}{t}hs_code IS NOT NULL
+        WHERE {b}hs_code IS NOT NULL
           AND hs_code <> ''
           AND hs_code ~ '{_HS_CODE_FORMAT_RE}'
         ORDER BY hs_code, product_name NULLS LAST
@@ -163,7 +156,6 @@ def _sql_upsert_products(full_sync: bool) -> text:
 
 def _sql_upsert_time(full_sync: bool) -> text:
     b = _batch_and(full_sync)
-    t = _trade_time_filter_and()
     return text(f"""
         INSERT INTO nds.time (year, quarter, month)
         SELECT DISTINCT
@@ -171,7 +163,7 @@ def _sql_upsert_time(full_sync: bool) -> text:
             quarter::SMALLINT,
             month::SMALLINT
         FROM ods.trade_transaction
-        WHERE {b}{t}year  IS NOT NULL
+        WHERE {b}year IS NOT NULL
           AND month IS NOT NULL
         ON CONFLICT (year, month) DO NOTHING
     """)
@@ -211,7 +203,6 @@ def _sql_upsert_fta(full_sync: bool) -> text:
 
 def _sql_upsert_trade(full_sync: bool, has_invalid_codes: bool) -> text:
     b = _batch_and(full_sync, alias="o")
-    t = _trade_time_filter_and(alias="o")
     invalid_cond = _invalid_code_condition("o", has_invalid_codes)
     return text(f"""
         INSERT INTO nds.trade_transaction (
@@ -234,7 +225,7 @@ def _sql_upsert_trade(full_sync: bool, has_invalid_codes: bool) -> text:
             o.ods_id
         FROM ods.trade_transaction o
         JOIN nds.time t ON t.year = o.year AND t.month = o.month
-        WHERE {b}{t}o.partner_code IS NOT NULL          -- BR04/BR06
+        WHERE {b}o.partner_code IS NOT NULL          -- BR04/BR06
           AND o.partner_code <> ''                   -- BR04/BR06
           AND NOT ({invalid_cond})                    -- BR06
           AND o.hs_code IS NOT NULL                   -- BR04
@@ -266,7 +257,6 @@ def _sql_select_rejected_trade(full_sync: bool, has_invalid_codes: bool) -> text
     BR06 (partner_code missing or not a valid ISO-3 code).
     """
     b = _batch_and(full_sync, alias="o")
-    t = _trade_time_filter_and(alias="o")
     invalid_cond = _invalid_code_condition("o", has_invalid_codes)
     return text(f"""
         SELECT
@@ -285,7 +275,7 @@ def _sql_select_rejected_trade(full_sync: bool, has_invalid_codes: bool) -> text
                     THEN 'invalid_value'
             END AS reject_reason
         FROM ods.trade_transaction o
-        WHERE {b}{t}(
+        WHERE {b}(
             o.hs_code IS NULL OR o.hs_code = ''
             OR o.hs_code !~ '{_HS_CODE_FORMAT_RE}'
             OR o.partner_code IS NULL OR o.partner_code = ''
@@ -539,7 +529,7 @@ def _sql_upsert_exchange_rate(full_sync: bool) -> text:
             source_system,
             batch_id
         FROM ods.exchange_rate
-        WHERE {b}rate_date >= '2025-05-01' AND rate_date < '2026-05-01'
+        WHERE {b}TRUE
         ON CONFLICT (rate_date, base_currency, quote_currency) DO UPDATE SET
             rate          = EXCLUDED.rate,
             vnd_per_usd   = EXCLUDED.vnd_per_usd,
