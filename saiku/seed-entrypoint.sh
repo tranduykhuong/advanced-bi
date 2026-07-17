@@ -17,9 +17,10 @@ ETC_DIR="$HOME_DIR/repository/data/unknown/etc"
 
 mkdir -p "$DS_DIR" "$DATA_DIR" "$ETC_DIR"
 
-# Mondrian cube schema + its Saiku OLAP datasource (points at postgres_dw/dds).
-[ -f "$DATA_DIR/Vietnam_Trade_Analysis_Cube.xml" ] \
-  || cp /opt/saiku-seed/data/Vietnam_Trade_Analysis_Cube.xml "$DATA_DIR/"
+# Mondrian cube schema — CODE, so ALWAYS refresh it from the image. Without
+# this, a cube change never reaches an existing volume on deploy (the old copy
+# stays and Saiku keeps serving the stale cube).
+cp /opt/saiku-seed/data/Vietnam_Trade_Analysis_Cube.xml "$DATA_DIR/"
 
 # Always update tradedw.sds to ensure it has correct credentials
 sed -e "s|\${POSTGRES_HOST}|${POSTGRES_HOST:-postgres_dw}|g" \
