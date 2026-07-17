@@ -50,7 +50,7 @@
       "x" : 6,
       "y" : 5,
       "w" : 6,
-      "h" : 4,
+      "h" : 5,
       "type" : "chart",
       "title" : "Tỷ lệ tận dụng FTA",
       "chartType" : "bar",
@@ -63,7 +63,7 @@
       "x" : 0,
       "y" : 5,
       "w" : 6,
-      "h" : 4,
+      "h" : 5,
       "type" : "chart",
       "chartType" : "bar",
       "query" : {
@@ -89,6 +89,19 @@
       "hierarchy" : "dim_time",
       "level" : "year",
       "members" : [ "[dim_time].[dim_time].[2025]" ]
+    }, {
+      "id" : "656fff83-e6ea-4d72-ac2c-aebdd6ad5faf",
+      "widget" : "single-select",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "Vietnam_Trade_Analysis_Cube"
+      },
+      "dimension" : "dim_time",
+      "hierarchy" : "dim_time",
+      "level" : "month",
+      "members" : [ ]
     } ]
   }
 }

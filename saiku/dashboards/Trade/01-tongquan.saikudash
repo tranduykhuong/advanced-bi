@@ -117,19 +117,6 @@
       "hierarchy" : "dim_time",
       "level" : "month",
       "members" : [ ]
-    }, {
-      "id" : "47fd8d70-af78-45c3-901b-96c8545a13a8",
-      "widget" : "multi-select",
-      "cube" : {
-        "connectionName" : "unknown_TradeDW",
-        "catalog" : "TradeAnalytics",
-        "schema" : "TradeAnalytics",
-        "cubeName" : "Vietnam_Trade_Analysis_Cube"
-      },
-      "dimension" : "dim_country",
-      "hierarchy" : "dim_country",
-      "level" : "region",
-      "members" : [ "[dim_country].[dim_country].[Africa].[Eastern Africa]" ]
     } ]
   }
 }
