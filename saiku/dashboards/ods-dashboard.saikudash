@@ -1,0 +1,45 @@
+{
+  "id" : "c1a0f150-ae8b-4b23-8620-8fd9e5c36934",
+  "name" : "ODS Dashboard",
+  "version" : 1,
+  "layout" : {
+    "cols" : 12,
+    "tiles" : [ {
+      "id" : "f87946f9-929d-4e1e-9206-0169892d7284",
+      "x" : 0,
+      "y" : 0,
+      "w" : 12,
+      "h" : 2,
+      "type" : "table",
+      "title" : "Ingested Records\t",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "ODS_Ingest_Monitor"
+      },
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/ODS/Ingest_monitor_hour.saiku"
+      }
+    }, {
+      "id" : "0af07cb2-27dd-4104-a221-d212e93d27e2",
+      "x" : 0,
+      "y" : 2,
+      "w" : 12,
+      "h" : 2,
+      "type" : "table",
+      "cube" : {
+        "connectionName" : "unknown_TradeDW",
+        "catalog" : "TradeAnalytics",
+        "schema" : "TradeAnalytics",
+        "cubeName" : "ODS_Watermark"
+      },
+      "query" : {
+        "kind" : "reference",
+        "path" : "homes/admin/ODS/watermark.saiku"
+      }
+    } ]
+  },
+  "filters" : [ ]
+}
