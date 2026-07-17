@@ -9,6 +9,8 @@ on:
     paths:
       - 'vps3_data_warehouse/**'
       - 'docker-compose.vps3.yml'
+      - 'saiku/**'
+      - 'Vietnam_Trade_Analysis_Cube.mondrian.xml'
   workflow_dispatch:
   workflow_call:
 
