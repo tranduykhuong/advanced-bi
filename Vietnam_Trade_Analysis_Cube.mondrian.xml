@@ -181,19 +181,21 @@
   </Cube>
 
   <!-- ==================== Trade Forecast Cube ==================== -->
-  <!-- Fan chart: Actual vs Forecast with a confidence band, from
-       dds.v_trade_forecast_monthly (migration 013). Grain is (time_key,
-       flow_type); the cleaning view aggregates there so the band stays
-       coherent (lower <= forecast <= upper) and non-negative, and restricts
-       actual to the same forecast panel. prophet_v1 levels are INDICATIVE
-       only (they run well above same-panel actuals and oscillate) — the chart
-       shows trend and widening uncertainty, not calibrated magnitudes, until
-       the model is retrained. Build the fan chart with dim_time.month on rows
-       and {Actual, Forecast, Forecast Lower, Forecast Upper} as line series;
-       Actual ends after the last history month, the band starts at the
-       forecast horizon. -->
+  <!-- Actual vs Forecast with a confidence band, from dds.v_trade_forecast_detail
+       (migration 013). Grain is (time_key, product_key, partner_key, flow_type),
+       so the cube exposes full dimensions: time, product (chapter_name ->
+       product_key, chapter name sourced from dim_product_current), partner
+       (country_name keyed by partner_key, sourced from dim_country_current) and
+       flow. The cleaning view enforces the band PER ROW (lower <= forecast <=
+       upper, all >= 0); summation preserves that, so the band stays coherent
+       when rolled up to any level. prophet_v1 levels are INDICATIVE only (they
+       run large and oscillate) — the chart shows trend and uncertainty shape,
+       not calibrated magnitudes, until the model is retrained.
+       Fan chart: dim_time.month on rows, {Actual, Forecast, Forecast Lower,
+       Forecast Upper} as line series; drill by product chapter or partner as
+       needed. -->
   <Cube name="Trade_Forecast_Cube">
-    <Table schema="dds" name="v_trade_forecast_monthly"/>
+    <Table schema="dds" name="v_trade_forecast_detail"/>
 
     <Dimension name="dim_time" foreignKey="time_key" type="TimeDimension">
       <Hierarchy hasAll="true" allMemberName="All Time" primaryKey="time_key">
@@ -201,6 +203,25 @@
         <Level name="year"    column="year"    type="Numeric" uniqueMembers="true"  levelType="TimeYears"/>
         <Level name="quarter" column="quarter" type="Numeric" uniqueMembers="false" levelType="TimeQuarters"/>
         <Level name="month"   column="month"   type="Numeric" uniqueMembers="false" levelType="TimeMonths"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- dim_product: key + chapter_name. chapter_name comes from
+         dim_product_current; drill chapter_name -> product_key. -->
+    <Dimension name="dim_product" foreignKey="product_key">
+      <Hierarchy hasAll="true" allMemberName="All Products" primaryKey="product_key">
+        <Table schema="dds" name="dim_product_current"/>
+        <Level name="chapter_name" column="hs_chapter"  nameColumn="chapter_name" type="String"  uniqueMembers="true"/>
+        <Level name="product_key"  column="product_key" nameColumn="product_name" type="Integer" uniqueMembers="true"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- dim_partner: key + name. Members are keyed by partner_key
+         (= country_key) and display country_name from dim_country_current. -->
+    <Dimension name="dim_partner" foreignKey="partner_key">
+      <Hierarchy hasAll="true" allMemberName="All Partners" primaryKey="country_key">
+        <Table schema="dds" name="dim_country_current"/>
+        <Level name="partner_key" column="country_key" nameColumn="country_name" type="Integer" uniqueMembers="true"/>
       </Hierarchy>
     </Dimension>
 
