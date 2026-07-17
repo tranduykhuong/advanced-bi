@@ -180,6 +180,46 @@
     <Measure name="ExchangeRate_Min" column="exchange_rate" aggregator="min" formatString="#,###.00"/>
   </Cube>
 
+  <!-- ==================== Trade Forecast Cube ==================== -->
+  <!-- Fan chart: Actual vs Forecast with a confidence band, from
+       dds.v_trade_forecast_monthly (migration 013). Grain is (time_key,
+       flow_type); the cleaning view aggregates there so the band stays
+       coherent (lower <= forecast <= upper) and non-negative, and restricts
+       actual to the same forecast panel. prophet_v1 levels are INDICATIVE
+       only (they run well above same-panel actuals and oscillate) — the chart
+       shows trend and widening uncertainty, not calibrated magnitudes, until
+       the model is retrained. Build the fan chart with dim_time.month on rows
+       and {Actual, Forecast, Forecast Lower, Forecast Upper} as line series;
+       Actual ends after the last history month, the band starts at the
+       forecast horizon. -->
+  <Cube name="Trade_Forecast_Cube">
+    <Table schema="dds" name="v_trade_forecast_monthly"/>
+
+    <Dimension name="dim_time" foreignKey="time_key" type="TimeDimension">
+      <Hierarchy hasAll="true" allMemberName="All Time" primaryKey="time_key">
+        <Table schema="dds" name="dim_time"/>
+        <Level name="year"    column="year"    type="Numeric" uniqueMembers="true"  levelType="TimeYears"/>
+        <Level name="quarter" column="quarter" type="Numeric" uniqueMembers="false" levelType="TimeQuarters"/>
+        <Level name="month"   column="month"   type="Numeric" uniqueMembers="false" levelType="TimeMonths"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- Same degenerate Flow Type as the main cube: CAST keeps Mondrian's
+         UPPER() predicate valid on the boolean key. true=Export, false=Import. -->
+    <Dimension name="Flow Type" foreignKey="flow_type">
+      <Hierarchy hasAll="true" allMemberName="All Flows" primaryKey="flow_type">
+        <Level name="Flow" type="String" uniqueMembers="true" caption="Export/Import">
+          <KeyExpression><SQL dialect="generic">CAST(flow_type AS VARCHAR)</SQL></KeyExpression>
+        </Level>
+      </Hierarchy>
+    </Dimension>
+
+    <Measure name="Actual"         column="actual_vnd"     aggregator="sum" formatString="#,###"/>
+    <Measure name="Forecast"       column="forecast_vnd"   aggregator="sum" formatString="#,###"/>
+    <Measure name="Forecast Lower" column="forecast_lower" aggregator="sum" formatString="#,###"/>
+    <Measure name="Forecast Upper" column="forecast_upper" aggregator="sum" formatString="#,###"/>
+  </Cube>
+
   <!-- ==================== ODS Ingestion Monitor (operational) ==================== -->
   <!-- Operational cube on the ODS layer (ods.v_ingest_monitor, migration 011).
        Charts pipeline health: records ingested per day/hour by source_system,
