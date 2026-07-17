@@ -113,23 +113,49 @@
   <!-- ==================== FTA Utilization Cube ==================== -->
   <!-- fact_trade_transaction.fta_keys is an INTEGER[] (many-to-many with dim_fta),
        which Mondrian cannot join directly, and Mondrian Virtual Cubes proved too
-       fragile (ignoreUnrelatedDimensions did not eliminate the cross-cube divide-
-       by-zero on this PSW/Mondrian build) for computing UtilizationRate live.
-       dds.fta_utilization_summary pre-aggregates per FTA in SQL instead:
-       fta_trade_count, total_trade_count (VN-wide), and utilization_rate (%). -->
+       fragile (cross-cube divide-by-zero on this build) for computing the ratio
+       live. dds.fta_utilization_by_agreement (migration 012) pre-joins at
+       (fta_name, time_key) grain — by AGREEMENT, since ~2130 fta_key collapse to
+       ~355 agreements — so a dashboard TIME filter applies. UtilizationRate is a
+       ratio, so it is computed live as a CalculatedMember: the numerator is the
+       current agreement's count and the denominator is the sentinel member
+       [dim_fta].[ALL VN TRADE] (fta_name = 'ALL VN TRADE', total VN transactions
+       per period). Both share the current dim_time context, so the rate stays
+       correct under any time slice; summed over all periods it equals the
+       whole-period rate. -->
   <Cube name="FTA_Utilization_Cube">
-    <Table schema="dds" name="fta_utilization_summary"/>
+    <Table schema="dds" name="fta_utilization_by_agreement"/>
 
-    <!-- dim_fta: flat dimension per report VI.1 (hierarchy "-") -->
-    <Dimension name="dim_fta" foreignKey="fta_key">
-      <Hierarchy hasAll="true" allMemberName="All FTAs" primaryKey="fta_key">
-        <Table schema="dds" name="dim_fta_current"/>
-        <Level name="fta_name" column="fta_key" nameColumn="fta_name" type="Numeric" uniqueMembers="true"/>
+    <Dimension name="dim_time" foreignKey="time_key" type="TimeDimension">
+      <Hierarchy hasAll="true" allMemberName="All Time" primaryKey="time_key">
+        <Table schema="dds" name="dim_time"/>
+        <Level name="year"    column="year"    type="Numeric" uniqueMembers="true"  levelType="TimeYears"/>
+        <Level name="quarter" column="quarter" type="Numeric" uniqueMembers="false" levelType="TimeQuarters"/>
+        <Level name="month"   column="month"   type="Numeric" uniqueMembers="false" levelType="TimeMonths"/>
+      </Hierarchy>
+    </Dimension>
+
+    <!-- dim_fta: distinct agreement names + sentinel "ALL VN TRADE" (denominator).
+         Keyed by fta_name because ~2130 fta_key collapse to ~355 agreements and
+         users analyse utilization per agreement, not per granular fta_key. -->
+    <Dimension name="dim_fta" foreignKey="fta_name">
+      <Hierarchy hasAll="true" allMemberName="All FTAs" primaryKey="fta_name">
+        <Table schema="dds" name="dim_fta_agreement"/>
+        <Level name="fta_name" column="fta_name" type="String" uniqueMembers="true"/>
       </Hierarchy>
     </Dimension>
 
     <Measure name="FTA Trade Count" column="fta_trade_count" aggregator="sum" formatString="#,###"/>
-    <Measure name="UtilizationRate" column="utilization_rate" aggregator="avg" formatString="0.00"/>
+
+    <!-- UtilizationRate = current FTA count / sentinel (total VN) count, in the
+         current time context. Percent of VN transactions eligible for this FTA. -->
+    <CalculatedMember name="UtilizationRate" dimension="Measures">
+      <Formula>
+        [Measures].[FTA Trade Count]
+        / ([dim_fta].[fta_name].[ALL VN TRADE], [Measures].[FTA Trade Count]) * 100
+      </Formula>
+      <CalculatedMemberProperty name="FORMAT_STRING" value="0.00"/>
+    </CalculatedMember>
   </Cube>
 
   <!-- ==================== Exchange Rate Cube ==================== -->
