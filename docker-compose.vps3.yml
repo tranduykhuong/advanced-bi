@@ -29,7 +29,7 @@ services:
       - ./vps3_data_warehouse/01_stage/02_ddl_stage_aptiad.sql:/docker-entrypoint-initdb.d/02_ddl_stage_aptiad.sql:ro
       - ./vps3_data_warehouse/02_ods/01_ddl_ods_trade.sql:/docker-entrypoint-initdb.d/02_ddl_ods_trade.sql:ro
       - ./vps3_data_warehouse/03_nds/01_ddl_nds_trade.sql:/docker-entrypoint-initdb.d/03_ddl_nds_trade.sql:ro
-      - ./vps3_data_warehouse/04_dds/01_ddl_dds_star.sql:/docker-entrypoint-initdb.d/04_ddl_dds_star.sql:ro
+      - ./vps3_data_warehouse/04_dds/01_ddl_dds.sql:/docker-entrypoint-initdb.d/04_ddl_dds.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:

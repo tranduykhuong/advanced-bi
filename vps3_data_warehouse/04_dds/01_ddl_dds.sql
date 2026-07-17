@@ -1,5 +1,5 @@
 -- =============================================================================
--- 01_ddl_dds_star.sql — Dimensional Data Store (DDS) Star Schema DDL
+-- 01_ddl_dds.sql — Dimensional Data Store (DDS) Star Schema DDL
 -- Schema: dds
 --
 -- Design rules for this layer (Kimball):

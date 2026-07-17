@@ -60,7 +60,7 @@ DDL_FILES=(
     "${WAREHOUSE_DIR}/02_ods/02_ddl_ods_exchange_rate.sql"
     "${WAREHOUSE_DIR}/03_nds/01_ddl_nds_trade.sql"
     "${WAREHOUSE_DIR}/03_nds/02_ddl_nds_exchange_rate.sql"
-    "${WAREHOUSE_DIR}/04_dds/01_ddl_dds_star.sql"
+    "${WAREHOUSE_DIR}/04_dds/01_ddl_dds.sql"
 )
 for f in "${DDL_FILES[@]}"; do
     apply "${f}"

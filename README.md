@@ -21,13 +21,13 @@ A Master's BI project implementing a **Hybrid Inmon–Kimball** data warehouse f
 
 ### Warehouse Layers
 
-| Schema  | Layer          | Design        | Role                                                 |
-| ------- | -------------- | ------------- | ---------------------------------------------------- |
-| `stage` | Stage          | VARCHAR-heavy | Fast truncate-and-load landing zone from all sources |
-| `ods`   | Operational DS | Typed + keyed | Integrated operational snapshot (Inmon approach)     |
-| `nds`   | Normalized DS  | 3NF + FKs     | Master data: countries, HS codes, reporters/partners |
+| Schema  | Layer          | Design        | Role                                                                          |
+| ------- | -------------- | ------------- | ----------------------------------------------------------------------------- |
+| `stage` | Stage          | VARCHAR-heavy | Fast truncate-and-load landing zone from all sources                          |
+| `ods`   | Operational DS | Typed + keyed | Integrated operational snapshot (Inmon approach)                              |
+| `nds`   | Normalized DS  | 3NF + FKs     | Master data: countries, HS codes, reporters/partners                          |
 | `dds`   | Dimensional DS | Star schema   | Kimball dims (SCD2 on dim_country/dim_product/dim_fta) + fact tables for OLAP |
-| `cube`  | Cube/Views     | SQL Views     | Pre-aggregated analytical hypercubes over DDS        |
+| `cube`  | Cube/Views     | SQL Views     | Pre-aggregated analytical hypercubes over DDS                                 |
 
 ### Production VPS Mapping
 
@@ -178,7 +178,7 @@ Project/
     ├── 01_stage/01_ddl_stg_trade.sql
     ├── 02_ods/01_ddl_ods_trade.sql
     ├── 03_nds/01_ddl_nds_trade.sql
-    └── 04_dds/01_ddl_dds_star.sql
+    └── 04_dds/01_ddl_dds.sql
 ```
 
 ---
@@ -187,12 +187,12 @@ Project/
 
 Four workflows under `.github/workflows/` — each VPS has its own file with native `paths:` filters:
 
-| Workflow file | Target | Push paths |
-|---------------|--------|------------|
-| `deploy-vps1.yml` | VPS1 Mock API + Trade Map DB | `vps1_data_sources/**`, `docker-compose.vps1.yml` |
-| `deploy-vps3.yml` | VPS3 PostgreSQL | `vps3_data_warehouse/**`, `docker-compose.yml` |
-| `deploy-vps2.yml` | VPS2 ETL | `vps2_data_integration/**`, `docker-compose.yml` |
-| `deploy-all.yml` | Full stack (manual) | `workflow_dispatch` only — runs VPS3 → VPS1 → VPS2 |
+| Workflow file     | Target                       | Push paths                                         |
+| ----------------- | ---------------------------- | -------------------------------------------------- |
+| `deploy-vps1.yml` | VPS1 Mock API + Trade Map DB | `vps1_data_sources/**`, `docker-compose.vps1.yml`  |
+| `deploy-vps3.yml` | VPS3 PostgreSQL              | `vps3_data_warehouse/**`, `docker-compose.yml`     |
+| `deploy-vps2.yml` | VPS2 ETL                     | `vps2_data_integration/**`, `docker-compose.yml`   |
+| `deploy-all.yml`  | Full stack (manual)          | `workflow_dispatch` only — runs VPS3 → VPS1 → VPS2 |
 
 ### Required GitHub Secrets & Variables
 
@@ -225,11 +225,11 @@ Four workflows under `.github/workflows/` — each VPS has its own file with nat
 
 ## Local vs Production Hostnames
 
-| Variable | Local (Docker Compose) | Production |
-|----------|----------------------|------------|
-| `DB_HOST` | `postgres_dw` (service name) | `152.42.163.132` |
-| `VPS1_DB_HOST` | `postgres_vps1` (service name) | `134.209.99.243` |
-| `VPS1_API_URL` | `http://mock_api:8000` | `http://134.209.99.243:8000` |
+| Variable       | Local (Docker Compose)         | Production                   |
+| -------------- | ------------------------------ | ---------------------------- |
+| `DB_HOST`      | `postgres_dw` (service name)   | `152.42.163.132`             |
+| `VPS1_DB_HOST` | `postgres_vps1` (service name) | `134.209.99.243`             |
+| `VPS1_API_URL` | `http://mock_api:8000`         | `http://134.209.99.243:8000` |
 
 ---
 
