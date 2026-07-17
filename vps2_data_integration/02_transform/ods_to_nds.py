@@ -90,7 +90,6 @@ def _find_invalid_country_codes(engine, full_sync: bool, params: dict) -> list[s
         SELECT DISTINCT o.partner_code
         FROM ods.trade_transaction o
         WHERE {b}o.partner_code IS NOT NULL AND o.partner_code <> ''
-          AND (o.year * 100 + o.month) BETWEEN 202505 AND 202604
     """)
     with engine.connect() as conn:
         codes = [r.partner_code for r in conn.execute(sql, params).fetchall()]
@@ -122,7 +121,6 @@ def _sql_upsert_countries_trade(full_sync: bool, has_invalid_codes: bool) -> tex
         FROM ods.trade_transaction
         WHERE {b}partner_code IS NOT NULL
           AND partner_code <> ''
-          AND (year * 100 + month) BETWEEN 202505 AND 202604
           AND NOT ({invalid_cond})
         GROUP BY partner_code
         ON CONFLICT (country_code) DO UPDATE SET
@@ -146,7 +144,6 @@ def _sql_upsert_products(full_sync: bool) -> text:
         FROM ods.trade_transaction
         WHERE {b}hs_code IS NOT NULL
           AND hs_code <> ''
-          AND (year * 100 + month) BETWEEN 202505 AND 202604
           AND hs_code ~ '{_HS_CODE_FORMAT_RE}'
         ORDER BY hs_code, product_name NULLS LAST
         ON CONFLICT (hs_code, hs_version) DO UPDATE SET
@@ -168,7 +165,6 @@ def _sql_upsert_time(full_sync: bool) -> text:
         FROM ods.trade_transaction
         WHERE {b}year IS NOT NULL
           AND month IS NOT NULL
-          AND (year * 100 + month) BETWEEN 202505 AND 202604
         ON CONFLICT (year, month) DO NOTHING
     """)
 
@@ -230,7 +226,6 @@ def _sql_upsert_trade(full_sync: bool, has_invalid_codes: bool) -> text:
         FROM ods.trade_transaction o
         JOIN nds.time t ON t.year = o.year AND t.month = o.month
         WHERE {b}o.partner_code IS NOT NULL          -- BR04/BR06
-          AND (o.year * 100 + o.month) BETWEEN 202505 AND 202604
           AND o.partner_code <> ''                   -- BR04/BR06
           AND NOT ({invalid_cond})                    -- BR06
           AND o.hs_code IS NOT NULL                   -- BR04
@@ -280,8 +275,7 @@ def _sql_select_rejected_trade(full_sync: bool, has_invalid_codes: bool) -> text
                     THEN 'invalid_value'
             END AS reject_reason
         FROM ods.trade_transaction o
-        WHERE {b}(o.year * 100 + o.month) BETWEEN 202505 AND 202604
-          AND (
+        WHERE {b}(
             o.hs_code IS NULL OR o.hs_code = ''
             OR o.hs_code !~ '{_HS_CODE_FORMAT_RE}'
             OR o.partner_code IS NULL OR o.partner_code = ''
