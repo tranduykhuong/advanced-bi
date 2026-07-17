@@ -60,6 +60,28 @@
       "query" : {
         "kind" : "reference",
         "path" : "homes/admin/Trade/Line_Exp_Imp.saiku"
+      },
+      "chartOptions" : {
+        "title" : "",
+        "xAxisLabel" : "",
+        "yAxisLabel" : "",
+        "showLegend" : true,
+        "legendPosition" : "top",
+        "trendLine" : "none",
+        "trendPeriod" : 3,
+        "hideRollupRows" : true,
+        "dualAxis" : true,
+        "seriesAxis" : { },
+        "seriesType" : { },
+        "colorRamp" : "blues",
+        "mapMissing" : "blank",
+        "sortDirection" : "none",
+        "topN" : null,
+        "palette" : "default",
+        "seriesColors" : { },
+        "referenceLines" : [ ],
+        "referenceBands" : [ ],
+        "conditionalFormat" : [ ]
       }
     }, {
       "id" : "1576aa5e-a79f-45aa-bac4-1520279d342a",
@@ -86,6 +108,28 @@
       "query" : {
         "kind" : "reference",
         "path" : "homes/admin/Trade/Bar_KhuVuc.saiku"
+      },
+      "chartOptions" : {
+        "title" : "",
+        "xAxisLabel" : "",
+        "yAxisLabel" : "",
+        "showLegend" : true,
+        "legendPosition" : "top",
+        "trendLine" : "none",
+        "trendPeriod" : 3,
+        "hideRollupRows" : true,
+        "dualAxis" : true,
+        "seriesAxis" : { },
+        "seriesType" : { },
+        "colorRamp" : "blues",
+        "mapMissing" : "blank",
+        "sortDirection" : "none",
+        "topN" : null,
+        "palette" : "default",
+        "seriesColors" : { },
+        "referenceLines" : [ ],
+        "referenceBands" : [ ],
+        "conditionalFormat" : [ ]
       }
     }, {
       "id" : "8269241c-5a04-4e10-befa-ba68a0191344",
