@@ -61,6 +61,34 @@ COMMENT ON TABLE public.reject_records IS
     'Rows rejected/excluded during ETL (Stage->ODS=1, ODS->NDS=2, NDS->DDS=3). '
     'Used for audit and data traceability alongside etl_batch_log.';
 
+-- Append-only audit trail of late-arriving business keys, detected in
+-- 02_transform/stage_to_ods.py. Never updated/deleted, unlike the mutable
+-- ods/nds is_late_arriving flags. Read by 04_mining/risk_trade_balance_prediction.py.
+CREATE TABLE IF NOT EXISTS public.late_arrival_audit (
+    audit_id       BIGSERIAL    PRIMARY KEY,
+    batch_id       UUID         NOT NULL REFERENCES public.etl_batch_log(batch_id),
+    source_table   VARCHAR(100) NOT NULL,
+    year           SMALLINT     NOT NULL,
+    month          SMALLINT     NOT NULL,
+    hs_code        VARCHAR(8),
+    partner_code   VARCHAR(3),
+    flow_type      BOOLEAN,
+    source_system  VARCHAR(50)  NOT NULL,
+    detected_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_late_arrival_audit_period ON public.late_arrival_audit (source_system, year, month);
+CREATE INDEX IF NOT EXISTS idx_late_arrival_audit_batch  ON public.late_arrival_audit (batch_id);
+
+COMMENT ON TABLE public.late_arrival_audit IS
+    'Append-only, permanent record of every late-arriving business key detected in '
+    '02_transform/stage_to_ods.py at first-detection time. Unlike '
+    'ods.trade_transaction.is_late_arriving / nds.trade_transaction.is_late_arriving '
+    '(mutable operational flags cleared once late_arriving_handler.py verifies '
+    'propagation to NDS), rows here are never updated or deleted — they preserve '
+    'historical late-arrival events for data-quality analysis '
+    '(see 04_mining/risk_trade_balance_prediction.py late_arriving_ratio feature).';
+
 COMMENT ON SCHEMA stage IS 'Stage Area — fast VARCHAR landing zone; truncated each ETL run';
 COMMENT ON SCHEMA ods  IS 'Operational Data Store — typed, integrated, Inmon approach';
 COMMENT ON SCHEMA nds  IS 'Normalized Data Store — 3NF master data and trade facts';
